@@ -22,6 +22,17 @@ Append the output to your shell rc file (bash / zsh):
 tfrename install-completions >> ~/.zshrc
 ```
 
+In addition to the subcommand and flag names, the first positional argument
+of each rename subcommand completes from the symbols actually defined in the
+target directory's `*.tf` files:
+
+```
+$ tfrename variable <TAB>
+env  region
+$ tfrename resource <TAB>
+aws_eip.addr  aws_instance.web
+```
+
 ## Usage
 
 ```

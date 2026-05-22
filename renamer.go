@@ -86,6 +86,63 @@ func splitQualified(s string) ([2]string, bool) {
 	return [2]string{parts[0], parts[1]}, true
 }
 
+// ListSymbols returns every defined symbol name of the given kind in *.tf files
+// under dir. For resource and data, names are in TYPE.NAME form.
+//
+// Parse and I/O errors are silently ignored so this is safe to call from a
+// shell-completion context — partial results are better than no completion.
+func ListSymbols(dir string, kind Kind) []string {
+	matches, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+	if err != nil {
+		return nil
+	}
+	sort.Strings(matches)
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if _, ok := seen[name]; !ok {
+			seen[name] = struct{}{}
+		}
+	}
+	for _, path := range matches {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		f, diags := hclsyntax.ParseConfig(src, path, hcl.Pos{Line: 1, Column: 1})
+		if diags.HasErrors() {
+			continue
+		}
+		collectSymbolNames(f.Body.(*hclsyntax.Body), kind, add)
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func collectSymbolNames(body *hclsyntax.Body, kind Kind, add func(string)) {
+	for _, blk := range body.Blocks {
+		switch {
+		case kind == KindResource && blk.Type == "resource" && len(blk.Labels) == 2:
+			add(blk.Labels[0] + "." + blk.Labels[1])
+		case kind == KindData && blk.Type == "data" && len(blk.Labels) == 2:
+			add(blk.Labels[0] + "." + blk.Labels[1])
+		case kind == KindModule && blk.Type == "module" && len(blk.Labels) == 1:
+			add(blk.Labels[0])
+		case kind == KindVariable && blk.Type == "variable" && len(blk.Labels) == 1:
+			add(blk.Labels[0])
+		case kind == KindOutput && blk.Type == "output" && len(blk.Labels) == 1:
+			add(blk.Labels[0])
+		case kind == KindLocal && blk.Type == "locals":
+			for name := range blk.Body.Attributes {
+				add(name)
+			}
+		}
+	}
+}
+
 // Renamer renames a single Target across all .tf files in Dir.
 type Renamer struct {
 	Dir     string
