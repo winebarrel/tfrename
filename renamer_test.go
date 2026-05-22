@@ -261,11 +261,40 @@ func TestListSymbols_GlobError(t *testing.T) {
 	assert.Nil(t, ListSymbols("[invalid", KindVariable))
 }
 
+func TestListSymbols_FiltersNonIdentifiers(t *testing.T) {
+	// HCL accepts quoted labels that aren't Terraform identifiers (e.g.
+	// digit-leading), but ParseTarget rejects them. ListSymbols must filter
+	// those out so completion only ever suggests renameable names.
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "a.tf"), []byte(`
+variable "1bad" {}
+variable "good" {}
+
+resource "1bad_type" "good" {}
+resource "aws_instance" "1bad" {}
+resource "aws_instance" "good" {}
+
+data "aws_ami" "1bad" {}
+data "aws_ami" "good" {}
+
+module "1bad" {}
+module "good" {}
+
+output "1bad" {}
+output "good" {}
+`), 0o644))
+	assert.Equal(t, []string{"good"}, ListSymbols(tmp, KindVariable))
+	assert.Equal(t, []string{"aws_instance.good"}, ListSymbols(tmp, KindResource))
+	assert.Equal(t, []string{"aws_ami.good"}, ListSymbols(tmp, KindData))
+	assert.Equal(t, []string{"good"}, ListSymbols(tmp, KindModule))
+	assert.Equal(t, []string{"good"}, ListSymbols(tmp, KindOutput))
+}
+
 func TestListSymbols_SkipsParseErrorAndUnreadable(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "broken.tf"), []byte(`resource "x" "y" {`), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "good.tf"), []byte(`variable "ok" {}`), 0o644))
-	// A directory named "*.tf" makes os.ReadFile fail when load() iterates it.
+	// A directory named "*.tf" makes os.ReadFile fail when ListSymbols iterates glob matches.
 	require.NoError(t, os.Mkdir(filepath.Join(tmp, "trap.tf"), 0o755))
 	assert.Equal(t, []string{"ok"}, ListSymbols(tmp, KindVariable))
 }

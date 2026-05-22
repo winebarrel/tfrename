@@ -23,20 +23,21 @@ func (p oldNamePredictor) Predict(args complete.Args) []string {
 }
 
 func dirFromCompletedArgs(completed []string) string {
+	dir := "."
 	for i := 0; i < len(completed); i++ {
 		a := completed[i]
 		switch {
 		case a == "-C" || a == "--dir":
 			if i+1 < len(completed) {
-				return completed[i+1]
+				dir = completed[i+1]
 			}
 		case strings.HasPrefix(a, "-C="):
-			return strings.TrimPrefix(a, "-C=")
+			dir = strings.TrimPrefix(a, "-C=")
 		case strings.HasPrefix(a, "--dir="):
-			return strings.TrimPrefix(a, "--dir=")
+			dir = strings.TrimPrefix(a, "--dir=")
 		}
 	}
-	return "."
+	return dir
 }
 
 var version string
