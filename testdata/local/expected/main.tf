@@ -3,6 +3,10 @@ locals {
   name   = "web-${local.aws_region}"
 }
 
+locals {
+  unrelated = "foo"
+}
+
 resource "aws_instance" "web" {
   ami           = "ami-123"
   instance_type = "t3.micro"

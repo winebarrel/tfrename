@@ -220,6 +220,77 @@ func TestRewriteLabel_QuotedAndUnquoted(t *testing.T) {
 	assert.Equal(t, []byte(`new`), rewriteLabel(src, unquotedRng, "new"))
 }
 
+// ----------------- matchTraversal / matchResourceRef / matchDataRef -----------------
+
+func TestMatchTraversal_EmptyTraversal(t *testing.T) {
+	r := &Renamer{Target: &Target{Kind: KindVariable, OldName: "x", NewName: "y"}}
+	assert.Nil(t, r.matchTraversal(hcl.Traversal{}, &fileState{}))
+}
+
+func TestMatchTraversal_FirstNotRoot(t *testing.T) {
+	r := &Renamer{Target: &Target{Kind: KindVariable, OldName: "x", NewName: "y"}}
+	tr := hcl.Traversal{hcl.TraverseAttr{Name: "x"}}
+	assert.Nil(t, r.matchTraversal(tr, &fileState{}))
+}
+
+func TestMatchTraversal_OutputKindReturnsNil(t *testing.T) {
+	r := &Renamer{Target: &Target{Kind: KindOutput, OldName: "x", NewName: "y"}}
+	tr := hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: "x"}}
+	assert.Nil(t, r.matchTraversal(tr, &fileState{}))
+}
+
+func TestMatchResourceRef_Misses(t *testing.T) {
+	target := &Target{Kind: KindResource, OldType: "aws_instance", OldName: "foo", NewType: "aws_instance", NewName: "bar"}
+	fs := &fileState{path: "x.tf"}
+
+	// root.Name mismatch
+	tr := hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: "foo"}}
+	assert.Nil(t, matchResourceRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// len(tr) < 2
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}}
+	assert.Nil(t, matchResourceRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// tr[1] not a TraverseAttr (e.g. TraverseIndex)
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseIndex{}}
+	assert.Nil(t, matchResourceRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// attr.Name mismatch
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "other"}}
+	assert.Nil(t, matchResourceRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+}
+
+func TestMatchDataRef_Misses(t *testing.T) {
+	target := &Target{Kind: KindData, OldType: "aws_ami", OldName: "ubuntu", NewType: "aws_ami", NewName: "debian"}
+	fs := &fileState{path: "x.tf"}
+
+	// root.Name != "data"
+	tr := hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: "aws_ami"}, hcl.TraverseAttr{Name: "ubuntu"}}
+	assert.Nil(t, matchDataRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// len(tr) < 3
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "data"}, hcl.TraverseAttr{Name: "aws_ami"}}
+	assert.Nil(t, matchDataRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// tr[1] not TraverseAttr
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "data"}, hcl.TraverseIndex{}, hcl.TraverseAttr{Name: "ubuntu"}}
+	assert.Nil(t, matchDataRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// type name mismatch
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "data"}, hcl.TraverseAttr{Name: "other"}, hcl.TraverseAttr{Name: "ubuntu"}}
+	assert.Nil(t, matchDataRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+}
+
+// ----------------- write -----------------
+
+func TestWrite_StdoutAppendsMissingNewline(t *testing.T) {
+	r := &Renamer{}
+	var buf bytes.Buffer
+	r.Out = &buf
+	require.NoError(t, r.write("x.tf", []byte("no newline"), false))
+	assert.Equal(t, "### x.tf ###\nno newline\n", buf.String())
+}
+
 // ----------------- applyEdits -----------------
 
 func TestApplyEdits_OverlapIgnored(t *testing.T) {
@@ -240,6 +311,18 @@ func TestApplyEdits_OrderedByStart(t *testing.T) {
 	}
 	got := applyEdits(src, edits)
 	assert.Equal(t, "aBcdEf", string(got))
+}
+
+func TestApplyEdits_SameStartShorterFirst(t *testing.T) {
+	// Two edits sharing a start byte exercise the secondary sort (by end).
+	// The shorter edit is applied; the longer one becomes an overlap and is skipped.
+	src := []byte("abcdef")
+	edits := []edit{
+		{start: 1, end: 3, replace: []byte("XX")},
+		{start: 1, end: 2, replace: []byte("B")},
+	}
+	got := applyEdits(src, edits)
+	assert.Equal(t, "aBcdef", string(got))
 }
 
 // ----------------- helpers -----------------
