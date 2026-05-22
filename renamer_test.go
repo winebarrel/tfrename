@@ -85,6 +85,20 @@ func TestRename_NoMatchStdoutIsSilent(t *testing.T) {
 	assert.Empty(t, buf.String(), "stdout should be empty when no edits applied")
 }
 
+func TestRename_ReuseDoesNotAccumulate(t *testing.T) {
+	tmp := copyInputToTemp(t, "testdata/variable/input")
+	target, err := ParseTarget(KindVariable, "region", "aws_region")
+	require.NoError(t, err)
+	r := NewRenamer(tmp, target)
+	var buf bytes.Buffer
+	r.Out = &buf
+	require.NoError(t, r.Rename(false))
+	first := buf.Len()
+	buf.Reset()
+	require.NoError(t, r.Rename(false))
+	assert.Equal(t, first, buf.Len(), "second Rename call must not duplicate output")
+}
+
 func TestRename_ParseError(t *testing.T) {
 	tmp := copyInputToTemp(t, "testdata/parse-error/input")
 	target, err := ParseTarget(KindVariable, "x", "y")

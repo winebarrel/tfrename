@@ -119,6 +119,7 @@ func (r *Renamer) Rename(inPlace bool) error {
 }
 
 func (r *Renamer) load() error {
+	r.files = nil
 	pattern := filepath.Join(r.Dir, "*.tf")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
