@@ -389,7 +389,7 @@ func (r *Renamer) write(path string, content []byte, inPlace bool) error {
 		if len(content) > 0 && content[len(content)-1] != '\n' {
 			suffix = "\n"
 		}
-		if _, err := fmt.Fprintf(r.Out, "=== %s ===\n%s%s", path, content, suffix); err != nil {
+		if _, err := fmt.Fprintf(r.Out, "### %s ###\n%s%s", path, content, suffix); err != nil {
 			return err
 		}
 		return nil
