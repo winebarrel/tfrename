@@ -123,21 +123,34 @@ func ListSymbols(dir string, kind Kind) []string {
 }
 
 func collectSymbolNames(body *hclsyntax.Body, kind Kind, add func(string)) {
+	// HCL accepts quoted labels (e.g. "1abc") that aren't valid Terraform
+	// identifiers and would be rejected by ParseTarget. Filter through the
+	// same regex so completion never suggests an unrenameable name.
+	addIdent := func(name string) {
+		if identRE.MatchString(name) {
+			add(name)
+		}
+	}
+	addQualified := func(typ, name string) {
+		if identRE.MatchString(typ) && identRE.MatchString(name) {
+			add(typ + "." + name)
+		}
+	}
 	for _, blk := range body.Blocks {
 		switch {
 		case kind == KindResource && blk.Type == "resource" && len(blk.Labels) == 2:
-			add(blk.Labels[0] + "." + blk.Labels[1])
+			addQualified(blk.Labels[0], blk.Labels[1])
 		case kind == KindData && blk.Type == "data" && len(blk.Labels) == 2:
-			add(blk.Labels[0] + "." + blk.Labels[1])
+			addQualified(blk.Labels[0], blk.Labels[1])
 		case kind == KindModule && blk.Type == "module" && len(blk.Labels) == 1:
-			add(blk.Labels[0])
+			addIdent(blk.Labels[0])
 		case kind == KindVariable && blk.Type == "variable" && len(blk.Labels) == 1:
-			add(blk.Labels[0])
+			addIdent(blk.Labels[0])
 		case kind == KindOutput && blk.Type == "output" && len(blk.Labels) == 1:
-			add(blk.Labels[0])
+			addIdent(blk.Labels[0])
 		case kind == KindLocal && blk.Type == "locals":
 			for name := range blk.Body.Attributes {
-				add(name)
+				addIdent(name)
 			}
 		}
 	}
