@@ -7,12 +7,17 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
+
+// identRE matches a valid Terraform identifier:
+// must start with a letter or underscore, then letters/digits/_/-.
+var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
 
 // Kind is the kind of Terraform symbol being renamed.
 type Kind string
@@ -54,11 +59,11 @@ func ParseTarget(kind Kind, oldStr, newStr string) (*Target, error) {
 		t.OldType, t.OldName = op[0], op[1]
 		t.NewType, t.NewName = np[0], np[1]
 	case KindModule, KindVariable, KindOutput, KindLocal:
-		if oldStr == "" || strings.ContainsAny(oldStr, ". \t\n") {
-			return nil, fmt.Errorf("%s old name must be a simple identifier: %q", kind, oldStr)
+		if !identRE.MatchString(oldStr) {
+			return nil, fmt.Errorf("%s old name must be a valid identifier: %q", kind, oldStr)
 		}
-		if newStr == "" || strings.ContainsAny(newStr, ". \t\n") {
-			return nil, fmt.Errorf("%s new name must be a simple identifier: %q", kind, newStr)
+		if !identRE.MatchString(newStr) {
+			return nil, fmt.Errorf("%s new name must be a valid identifier: %q", kind, newStr)
 		}
 		t.OldName = oldStr
 		t.NewName = newStr
@@ -69,13 +74,13 @@ func ParseTarget(kind Kind, oldStr, newStr string) (*Target, error) {
 }
 
 // splitQualified parses a TYPE.NAME string into its two parts, rejecting any
-// input that has a different number of dots or whitespace in either part.
+// input with a different number of dots or a non-identifier in either part.
 func splitQualified(s string) ([2]string, bool) {
 	parts := strings.Split(s, ".")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != 2 {
 		return [2]string{}, false
 	}
-	if strings.ContainsAny(parts[0], " \t\n") || strings.ContainsAny(parts[1], " \t\n") {
+	if !identRE.MatchString(parts[0]) || !identRE.MatchString(parts[1]) {
 		return [2]string{}, false
 	}
 	return [2]string{parts[0], parts[1]}, true

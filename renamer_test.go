@@ -159,10 +159,13 @@ func TestParseTarget_ResourceInvalid(t *testing.T) {
 		{"", "aws_instance.bar"},
 		{".foo", "aws_instance.bar"},
 		{"aws_instance.", "aws_instance.bar"},
-		{"aws_instance.foo.bar", "aws_instance.bar"}, // too many dots
-		{"aws_instance.foo", "aws_instance.bar.baz"}, // too many dots
-		{"aws instance.foo", "aws_instance.bar"},    // whitespace in type
-		{"aws_instance.foo bar", "aws_instance.bar"}, // whitespace in name
+		{"aws_instance.foo.bar", "aws_instance.bar"},  // too many dots
+		{"aws_instance.foo", "aws_instance.bar.baz"},  // too many dots
+		{"aws instance.foo", "aws_instance.bar"},      // whitespace in type
+		{"aws_instance.foo bar", "aws_instance.bar"},  // whitespace in name
+		{"aws_instance.123foo", "aws_instance.bar"},   // digit-leading name
+		{"aws_instance.foo", "aws_instance.foo$bar"},  // non-identifier char
+		{"-aws_instance.foo", "aws_instance.bar"},     // hyphen-leading type
 	} {
 		_, err := ParseTarget(KindResource, c.old, c.new)
 		require.Errorf(t, err, "old=%q new=%q", c.old, c.new)
@@ -185,10 +188,21 @@ func TestParseTarget_SimpleInvalid(t *testing.T) {
 		{KindLocal, "", "x"},
 		{KindModule, "x", ""},
 		{KindOutput, "x", "y z"},
+		{KindVariable, "123foo", "bar"},   // digit-leading
+		{KindLocal, "foo", "bar$baz"},     // non-identifier char
+		{KindModule, "-leading", "bar"},   // hyphen-leading
 	} {
 		_, err := ParseTarget(c.kind, c.old, c.new)
 		require.Errorf(t, err, "%v old=%q new=%q", c.kind, c.old, c.new)
 	}
+}
+
+func TestParseTarget_SimpleAllowsHyphenInside(t *testing.T) {
+	// HCL identifiers may include hyphens after the first character.
+	target, err := ParseTarget(KindVariable, "foo-bar", "baz-qux")
+	require.NoError(t, err)
+	assert.Equal(t, "foo-bar", target.OldName)
+	assert.Equal(t, "baz-qux", target.NewName)
 }
 
 func TestParseTarget_UnknownKind(t *testing.T) {
