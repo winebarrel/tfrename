@@ -107,7 +107,8 @@ func TestRename_ParseError(t *testing.T) {
 	err = r.Rename(true)
 	require.Error(t, err)
 	var diags hcl.Diagnostics
-	assert.True(t, errors.As(err, &diags) || err != nil)
+	require.ErrorAs(t, err, &diags, "expected hcl.Diagnostics, got %T", err)
+	assert.True(t, diags.HasErrors())
 }
 
 func TestRename_GlobError(t *testing.T) {
@@ -158,6 +159,10 @@ func TestParseTarget_ResourceInvalid(t *testing.T) {
 		{"", "aws_instance.bar"},
 		{".foo", "aws_instance.bar"},
 		{"aws_instance.", "aws_instance.bar"},
+		{"aws_instance.foo.bar", "aws_instance.bar"}, // too many dots
+		{"aws_instance.foo", "aws_instance.bar.baz"}, // too many dots
+		{"aws instance.foo", "aws_instance.bar"},    // whitespace in type
+		{"aws_instance.foo bar", "aws_instance.bar"}, // whitespace in name
 	} {
 		_, err := ParseTarget(KindResource, c.old, c.new)
 		require.Errorf(t, err, "old=%q new=%q", c.old, c.new)

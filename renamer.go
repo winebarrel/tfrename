@@ -43,12 +43,12 @@ func ParseTarget(kind Kind, oldStr, newStr string) (*Target, error) {
 	t := &Target{Kind: kind}
 	switch kind {
 	case KindResource, KindData:
-		op := strings.SplitN(oldStr, ".", 2)
-		np := strings.SplitN(newStr, ".", 2)
-		if len(op) != 2 || op[0] == "" || op[1] == "" {
+		op, ok := splitQualified(oldStr)
+		if !ok {
 			return nil, fmt.Errorf("%s old name must be in TYPE.NAME format: %q", kind, oldStr)
 		}
-		if len(np) != 2 || np[0] == "" || np[1] == "" {
+		np, ok := splitQualified(newStr)
+		if !ok {
 			return nil, fmt.Errorf("%s new name must be in TYPE.NAME format: %q", kind, newStr)
 		}
 		t.OldType, t.OldName = op[0], op[1]
@@ -66,6 +66,19 @@ func ParseTarget(kind Kind, oldStr, newStr string) (*Target, error) {
 		return nil, fmt.Errorf("unknown kind %q", kind)
 	}
 	return t, nil
+}
+
+// splitQualified parses a TYPE.NAME string into its two parts, rejecting any
+// input that has a different number of dots or whitespace in either part.
+func splitQualified(s string) ([2]string, bool) {
+	parts := strings.Split(s, ".")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return [2]string{}, false
+	}
+	if strings.ContainsAny(parts[0], " \t\n") || strings.ContainsAny(parts[1], " \t\n") {
+		return [2]string{}, false
+	}
+	return [2]string{parts[0], parts[1]}, true
 }
 
 // Renamer renames a single Target across all .tf files in Dir.
@@ -372,7 +385,11 @@ func applyEdits(src []byte, edits []edit) []byte {
 
 func (r *Renamer) write(path string, content []byte, inPlace bool) error {
 	if !inPlace {
-		if _, err := fmt.Fprintf(r.Out, "=== %s ===\n%s", path, content); err != nil {
+		suffix := ""
+		if len(content) > 0 && content[len(content)-1] != '\n' {
+			suffix = "\n"
+		}
+		if _, err := fmt.Fprintf(r.Out, "=== %s ===\n%s%s", path, content, suffix); err != nil {
 			return err
 		}
 		return nil
