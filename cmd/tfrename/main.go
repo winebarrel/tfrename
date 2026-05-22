@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/alecthomas/kong"
+	"github.com/posener/complete"
+	"github.com/willabides/kongplete"
 	"github.com/winebarrel/tfrename"
 )
 
@@ -15,7 +17,7 @@ func init() {
 }
 
 type commonFlags struct {
-	Dir     string `short:"C" name:"dir" default:"." help:"Directory containing *.tf files (default: \".\")."`
+	Dir     string `short:"C" name:"dir" default:"." predictor:"dir" help:"Directory containing *.tf files (default: \".\")."`
 	InPlace bool   `short:"i" help:"Write changes back to files instead of stdout."`
 	Verbose bool   `short:"v" help:"Verbose logging."`
 }
@@ -85,13 +87,14 @@ func (c *localCmd) Run() error {
 }
 
 type cli struct {
-	Resource resourceCmd      `cmd:"" help:"Rename a resource (TYPE.NAME form)."`
-	Data     dataCmd          `cmd:"" help:"Rename a data source (TYPE.NAME form)."`
-	Module   moduleCmd        `cmd:"" help:"Rename a module."`
-	Variable variableCmd      `cmd:"" help:"Rename a variable."`
-	Output   outputCmd        `cmd:"" help:"Rename an output."`
-	Local    localCmd         `cmd:"" help:"Rename a local."`
-	Version  kong.VersionFlag `help:"Show version."`
+	Resource           resourceCmd                  `cmd:"" help:"Rename a resource (TYPE.NAME form)."`
+	Data               dataCmd                      `cmd:"" help:"Rename a data source (TYPE.NAME form)."`
+	Module             moduleCmd                    `cmd:"" help:"Rename a module."`
+	Variable           variableCmd                  `cmd:"" help:"Rename a variable."`
+	Output             outputCmd                    `cmd:"" help:"Rename an output."`
+	Local              localCmd                     `cmd:"" help:"Rename a local."`
+	InstallCompletions kongplete.InstallCompletions `cmd:"" help:"Install shell completions."`
+	Version            kong.VersionFlag             `help:"Show version."`
 }
 
 func runRename(kind tfrename.Kind, old, newName, dir string, inPlace, verbose bool) error {
@@ -112,6 +115,11 @@ func main() {
 		kong.Vars{"version": version},
 	)
 	parser.Model.HelpFlag.Help = "Show help."
+
+	kongplete.Complete(parser,
+		kongplete.WithPredictor("dir", complete.PredictDirs("*")),
+	)
+
 	ctx, err := parser.Parse(os.Args[1:])
 	if err != nil {
 		parser.FatalIfErrorf(err)

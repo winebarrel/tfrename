@@ -14,6 +14,14 @@ It works at the byte level over an `hclsyntax`-parsed file, so whitespace, comme
 go install github.com/winebarrel/tfrename/cmd/tfrename@latest
 ```
 
+### Shell completions
+
+Append the output to your shell rc file (bash / zsh):
+
+```sh
+tfrename install-completions >> ~/.zshrc
+```
+
 ## Usage
 
 ```
