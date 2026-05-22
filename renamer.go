@@ -155,10 +155,7 @@ func (r *Renamer) load() error {
 			diags = append(diags, parseDiags...)
 			continue
 		}
-		body, ok := f.Body.(*hclsyntax.Body)
-		if !ok {
-			return fmt.Errorf("unexpected body type for %s", path)
-		}
+		body := f.Body.(*hclsyntax.Body)
 		r.files = append(r.files, &fileState{path: path, src: src, body: body})
 	}
 	if diags.HasErrors() {
