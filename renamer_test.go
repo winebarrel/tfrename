@@ -294,7 +294,7 @@ func TestListSymbols_SkipsParseErrorAndUnreadable(t *testing.T) {
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "broken.tf"), []byte(`resource "x" "y" {`), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "good.tf"), []byte(`variable "ok" {}`), 0o644))
-	// A directory named "*.tf" makes os.ReadFile fail when ListSymbols iterates glob matches.
+	// A directory whose name matches "*.tf" is returned by the glob; os.ReadFile then fails on it.
 	require.NoError(t, os.Mkdir(filepath.Join(tmp, "trap.tf"), 0o755))
 	assert.Equal(t, []string{"ok"}, ListSymbols(tmp, KindVariable))
 }
