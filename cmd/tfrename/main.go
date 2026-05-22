@@ -30,6 +30,7 @@ func dirFromCompletedArgs(completed []string) string {
 		case a == "-C" || a == "--dir":
 			if i+1 < len(completed) {
 				dir = completed[i+1]
+				i++ // consume the value so it isn't re-scanned as a flag
 			}
 		case strings.HasPrefix(a, "-C="):
 			dir = strings.TrimPrefix(a, "-C=")
