@@ -220,6 +220,56 @@ func TestRewriteLabel_QuotedAndUnquoted(t *testing.T) {
 	assert.Equal(t, []byte(`new`), rewriteLabel(src, unquotedRng, "new"))
 }
 
+// ----------------- ListSymbols -----------------
+
+func TestListSymbols(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "a.tf"), []byte(`
+variable "region" {}
+variable "env" {}
+
+resource "aws_instance" "web" {}
+resource "aws_eip" "addr" {}
+
+data "aws_ami" "ubuntu" {}
+
+module "vpc" {}
+module "ec2" {}
+
+output "ip" { value = "x" }
+
+locals {
+  prefix = "x"
+  suffix = "y"
+}
+`), 0o644))
+	// A second file to confirm names from multiple files merge and de-dupe.
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "b.tf"), []byte(`
+variable "region" {}
+variable "extra" {}
+`), 0o644))
+
+	assert.Equal(t, []string{"env", "extra", "region"}, ListSymbols(tmp, KindVariable))
+	assert.Equal(t, []string{"aws_eip.addr", "aws_instance.web"}, ListSymbols(tmp, KindResource))
+	assert.Equal(t, []string{"aws_ami.ubuntu"}, ListSymbols(tmp, KindData))
+	assert.Equal(t, []string{"ec2", "vpc"}, ListSymbols(tmp, KindModule))
+	assert.Equal(t, []string{"ip"}, ListSymbols(tmp, KindOutput))
+	assert.Equal(t, []string{"prefix", "suffix"}, ListSymbols(tmp, KindLocal))
+}
+
+func TestListSymbols_GlobError(t *testing.T) {
+	assert.Nil(t, ListSymbols("[invalid", KindVariable))
+}
+
+func TestListSymbols_SkipsParseErrorAndUnreadable(t *testing.T) {
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "broken.tf"), []byte(`resource "x" "y" {`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "good.tf"), []byte(`variable "ok" {}`), 0o644))
+	// A directory named "*.tf" makes os.ReadFile fail when load() iterates it.
+	require.NoError(t, os.Mkdir(filepath.Join(tmp, "trap.tf"), 0o755))
+	assert.Equal(t, []string{"ok"}, ListSymbols(tmp, KindVariable))
+}
+
 // ----------------- matchTraversal / matchResourceRef / matchDataRef -----------------
 
 func TestMatchTraversal_EmptyTraversal(t *testing.T) {
