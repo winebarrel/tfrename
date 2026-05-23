@@ -10,3 +10,16 @@ builds:
       - CGO_ENABLED=0
 checksum:
   name_template: "checksums.txt"
+homebrew_casks:
+  - repository:
+      owner: winebarrel
+      name: homebrew-tfrename
+    homepage: https://github.com/winebarrel/tfrename
+    description: Rename Terraform resources, data sources, modules, variables, outputs, and locals across .tf files
+    license: MIT
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tfrename"]
+          end
