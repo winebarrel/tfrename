@@ -10,8 +10,8 @@ It works at the byte level over an `hclsyntax`-parsed file, so whitespace, comme
 
 ## Installation
 
-```
-go install github.com/winebarrel/tfrename/cmd/tfrename@latest
+```sh
+brew install winebarrel/tfrename/tfrename
 ```
 
 ### Shell completions
