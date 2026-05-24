@@ -221,6 +221,12 @@ func TestParseTarget_UnknownKind(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestParseTarget_UnindexRoutedToDedicatedParser(t *testing.T) {
+	_, err := ParseTarget(KindUnindex, "foo.bar[0]", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ParseUnindexTarget")
+}
+
 // ----------------- ParseUnindexTarget -----------------
 
 func TestParseUnindexTarget_Int(t *testing.T) {

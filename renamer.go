@@ -46,7 +46,8 @@ type Target struct {
 }
 
 // IndexKey is the literal key inside a TYPE.NAME[KEY] reference.
-// Exactly one of IsString / numeric forms is meaningful; the zero value is invalid.
+// When IsString is true the key is Str; otherwise it is the integer Int.
+// The zero value represents the integer key 0.
 type IndexKey struct {
 	IsString bool
 	Int      int64
@@ -142,6 +143,8 @@ func ParseTarget(kind Kind, oldStr, newStr string) (*Target, error) {
 		}
 		t.OldName = oldStr
 		t.NewName = newStr
+	case KindUnindex:
+		return nil, fmt.Errorf("kind %q must be parsed with ParseUnindexTarget", kind)
 	default:
 		return nil, fmt.Errorf("unknown kind %q", kind)
 	}
