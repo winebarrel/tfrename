@@ -293,8 +293,9 @@ func NewRenamer(dir string, target *Target) *Renamer {
 
 // Rename applies the rename to every *.tf file in Dir.
 // When inPlace is true, files are rewritten on disk; otherwise the changed
-// output is written to r.Out. Returns an error if no matches are found —
-// silent no-ops usually mean a typo.
+// output is written to r.Out. Returns an error if Dir contains no *.tf
+// files, or if no match is found across them — silent no-ops usually mean
+// a typo (wrong directory, wrong name, wrong key).
 func (r *Renamer) Rename(inPlace bool) error {
 	if err := r.load(); err != nil {
 		return err
