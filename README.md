@@ -53,6 +53,7 @@ Commands:
   output   <old> <new> [flags]
   local    <old> <new> [flags]
   unindex  <ref> [flags]          # ref in TYPE.NAME[KEY] form
+  addindex <ref> [flags]          # ref in TYPE.NAME[KEY] form
 
 Per-command flags:
   -C, --dir="."     Directory containing *.tf files (default: ".").
@@ -156,6 +157,42 @@ the shell doesn't eat the brackets:
 ```sh
 tfrename unindex 'zoo_thing.baz["hoge"]' -i
 ```
+
+### Add an index after adding `count` / `for_each`
+
+The inverse of `unindex`. When you add `count` or `for_each` to a previously
+single resource, bare `foo.bar` references must gain the index. `addindex`
+takes the target indexed form and inserts it everywhere the bare reference
+appears. The declaration block is left alone — you add the `count` /
+`for_each` line yourself.
+
+```hcl
+# main.tf
+resource "aws_instance" "foo" {
+  ami = "ami-123"
+}
+
+output "ip" { value = aws_instance.foo.public_ip }
+```
+
+```sh
+# after manually adding `count = 1` to the resource block:
+tfrename addindex 'aws_instance.foo[0]' -i
+```
+
+```hcl
+# main.tf (rewritten)
+resource "aws_instance" "foo" {
+  count = 1
+  ami   = "ami-123"
+}
+
+output "ip" { value = aws_instance.foo[0].public_ip }
+```
+
+If any reference already has an index (e.g. a mix of `foo.bar` and
+`foo.bar[0]`), `addindex` aborts without touching any file — fix those
+references first.
 
 ### Target a different directory
 
