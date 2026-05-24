@@ -305,17 +305,23 @@ func (r *Renamer) Rename(inPlace bool) error {
 	return nil
 }
 
-// checkNoExistingIndex aborts addindex if any TYPE.NAME reference already has
-// an index — the user must explicitly resolve those before adding an index.
+// checkNoExistingIndex aborts addindex if the target TYPE.NAME reference
+// itself already has an index — the user must explicitly resolve those
+// before adding an index.
 //
 // Three HCL shapes are caught here:
 //  1. literal index inside a ScopeTraversalExpr — `foo.bar[0]`
-//  2. dynamic IndexExpr around a ScopeTraversalExpr — `foo.bar[var.i]`
-//  3. SplatExpr around a ScopeTraversalExpr — `foo.bar[*]`
+//  2. dynamic IndexExpr around the bare reference — `foo.bar[var.i]`
+//  3. SplatExpr around the bare reference — `foo.bar[*]`
 //
-// Without (2) and (3), the inner traversal `foo.bar` looks bare to the
+// Without (2) and (3), the inner `foo.bar` traversal looks bare to the
 // matcher and would get a stray `[0]` inserted, producing nonsense like
 // `foo.bar[0][var.i]`.
+//
+// Index/splat applied to a deeper attribute (`foo.bar.tags[var.k]`,
+// `foo.bar.ids[*]`) does NOT abort: the resource reference itself is still
+// bare and the matcher correctly rewrites the inner traversal to
+// `foo.bar[0].tags[var.k]` / `foo.bar[0].ids[*]`.
 func (r *Renamer) checkNoExistingIndex(fs *fileState) error {
 	var firstErr error
 	abort := func(rng hcl.Range, label string) {
@@ -324,8 +330,10 @@ func (r *Renamer) checkNoExistingIndex(fs *fileState) error {
 				fs.path, rng.Start.Line, rng.Start.Column, r.Target.OldType, r.Target.OldName, label)
 		}
 	}
-	matchesTarget := func(tr hcl.Traversal) bool {
-		if len(tr) < 2 {
+	// isBareTargetRef reports whether tr is exactly `[Root(type), Attr(name)]`
+	// — i.e. the bare resource reference, with nothing trailing.
+	isBareTargetRef := func(tr hcl.Traversal) bool {
+		if len(tr) != 2 {
 			return false
 		}
 		root, ok := tr[0].(hcl.TraverseRoot)
@@ -342,7 +350,15 @@ func (r *Renamer) checkNoExistingIndex(fs *fileState) error {
 		switch e := node.(type) {
 		case *hclsyntax.ScopeTraversalExpr:
 			tr := e.Traversal
-			if len(tr) < 3 || !matchesTarget(tr) {
+			if len(tr) < 3 {
+				return nil
+			}
+			root, ok := tr[0].(hcl.TraverseRoot)
+			if !ok || root.Name != r.Target.OldType {
+				return nil
+			}
+			attr, ok := tr[1].(hcl.TraverseAttr)
+			if !ok || attr.Name != r.Target.OldName {
 				return nil
 			}
 			if _, isIdx := tr[2].(hcl.TraverseIndex); isIdx {
@@ -350,12 +366,12 @@ func (r *Renamer) checkNoExistingIndex(fs *fileState) error {
 			}
 		case *hclsyntax.IndexExpr:
 			ste, ok := e.Collection.(*hclsyntax.ScopeTraversalExpr)
-			if ok && matchesTarget(ste.Traversal) {
+			if ok && isBareTargetRef(ste.Traversal) {
 				abort(e.Range(), "a dynamic index")
 			}
 		case *hclsyntax.SplatExpr:
 			ste, ok := e.Source.(*hclsyntax.ScopeTraversalExpr)
-			if ok && matchesTarget(ste.Traversal) {
+			if ok && isBareTargetRef(ste.Traversal) {
 				abort(e.Range(), "a splat index")
 			}
 		}
