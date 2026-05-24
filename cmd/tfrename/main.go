@@ -113,6 +113,21 @@ func (c *localCmd) Run() error {
 	return runRename(tfrename.KindLocal, c.Old, c.New, c.Dir, c.InPlace, c.Verbose)
 }
 
+type unindexCmd struct {
+	Ref string `arg:"" help:"Indexed reference in TYPE.NAME[KEY] form, e.g. 'foo.bar[0]' or 'zoo.baz[\"hoge\"]'."`
+	commonFlags
+}
+
+func (c *unindexCmd) Run() error {
+	target, err := tfrename.ParseUnindexTarget(c.Ref)
+	if err != nil {
+		return err
+	}
+	r := tfrename.NewRenamer(c.Dir, target)
+	r.Verbose = c.Verbose
+	return r.Rename(c.InPlace)
+}
+
 type cli struct {
 	Resource           resourceCmd                  `cmd:"" help:"Rename a resource (TYPE.NAME form)."`
 	Data               dataCmd                      `cmd:"" help:"Rename a data source (TYPE.NAME form)."`
@@ -120,6 +135,7 @@ type cli struct {
 	Variable           variableCmd                  `cmd:"" help:"Rename a variable."`
 	Output             outputCmd                    `cmd:"" help:"Rename an output."`
 	Local              localCmd                     `cmd:"" help:"Rename a local."`
+	Unindex            unindexCmd                   `cmd:"" help:"Strip [KEY] from references — use after deleting count/for_each."`
 	InstallCompletions kongplete.InstallCompletions `cmd:"" help:"Install shell completions."`
 	Version            kong.VersionFlag             `help:"Show version."`
 }
