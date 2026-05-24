@@ -299,6 +299,9 @@ func (r *Renamer) Rename(inPlace bool) error {
 	if err := r.load(); err != nil {
 		return err
 	}
+	if len(r.files) == 0 {
+		return fmt.Errorf("no *.tf files found in %q", r.Dir)
+	}
 	if r.Target.Kind == KindAddindex {
 		for _, fs := range r.files {
 			if err := r.checkNoExistingIndex(fs); err != nil {
@@ -319,7 +322,7 @@ func (r *Renamer) Rename(inPlace bool) error {
 		}
 	}
 	if !matched {
-		return fmt.Errorf("no matches found for %s in %s", r.Target.describe(), r.Dir)
+		return fmt.Errorf("no matches found for %s in %q", r.Target.describe(), r.Dir)
 	}
 	return nil
 }

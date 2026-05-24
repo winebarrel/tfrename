@@ -155,7 +155,7 @@ func TestRename_NoFiles(t *testing.T) {
 	r := NewRenamer(tmp, target)
 	err = r.Rename(true)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no matches found")
+	assert.Contains(t, err.Error(), "no *.tf files found")
 }
 
 // ----------------- ParseTarget -----------------
