@@ -30,7 +30,6 @@ func TestRename_Golden(t *testing.T) {
 		{"local", KindLocal, "region", "aws_region"},
 		{"multi-file", KindVariable, "env", "environment"},
 		{"preserve-comments", KindVariable, "region", "aws_region"},
-		{"no-match", KindVariable, "no_such_var", "renamed"},
 		{"type-rename", KindResource, "aws_instance.foo", "aws_db_instance.bar"},
 		{"unindex", KindUnindex, "aws_instance.foo[0]", ""},
 		{"unindex-string", KindUnindex, `zoo_thing.baz["hoge"]`, ""},
@@ -90,15 +89,17 @@ func TestRename_StdoutWriteError(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestRename_NoMatchStdoutIsSilent(t *testing.T) {
+func TestRename_NoMatchErrorsAndWritesNothing(t *testing.T) {
 	tmp := copyInputToTemp(t, "testdata/no-match/input")
 	var buf bytes.Buffer
 	target, err := ParseTarget(KindVariable, "no_such_var", "renamed")
 	require.NoError(t, err)
 	r := NewRenamer(tmp, target)
 	r.Out = &buf
-	require.NoError(t, r.Rename(false))
-	assert.Empty(t, buf.String(), "stdout should be empty when no edits applied")
+	err = r.Rename(false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no matches found for variable no_such_var")
+	assert.Empty(t, buf.String(), "stdout must stay empty when no edits applied")
 }
 
 func TestRename_ReuseDoesNotAccumulate(t *testing.T) {
@@ -152,7 +153,9 @@ func TestRename_NoFiles(t *testing.T) {
 	target, err := ParseTarget(KindVariable, "x", "y")
 	require.NoError(t, err)
 	r := NewRenamer(tmp, target)
-	require.NoError(t, r.Rename(true))
+	err = r.Rename(true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no matches found")
 }
 
 // ----------------- ParseTarget -----------------
@@ -284,6 +287,19 @@ func TestIndexKey_Format(t *testing.T) {
 	assert.Equal(t, `["x"]`, IndexKey{IsString: true, Str: "x"}.Format())
 }
 
+func TestTarget_Describe(t *testing.T) {
+	assert.Equal(t, "resource aws_instance.foo",
+		(&Target{Kind: KindResource, OldType: "aws_instance", OldName: "foo"}).describe())
+	assert.Equal(t, "data aws_ami.ubuntu",
+		(&Target{Kind: KindData, OldType: "aws_ami", OldName: "ubuntu"}).describe())
+	assert.Equal(t, "variable region",
+		(&Target{Kind: KindVariable, OldName: "region"}).describe())
+	assert.Equal(t, "unindex aws_instance.foo[0]",
+		(&Target{Kind: KindUnindex, OldType: "aws_instance", OldName: "foo", Key: IndexKey{Int: 0}}).describe())
+	assert.Equal(t, `addindex zoo.baz["k"]`,
+		(&Target{Kind: KindAddindex, OldType: "zoo", OldName: "baz", Key: IndexKey{IsString: true, Str: "k"}}).describe())
+}
+
 // ----------------- ParseAddindexTarget -----------------
 
 func TestParseAddindexTarget_Int(t *testing.T) {
@@ -316,10 +332,12 @@ func TestAddindex_ShortCollectionTraversalIgnored(t *testing.T) {
 	// `foo[var.i]` is an IndexExpr whose collection traversal is just
 	// `[Root(foo)]` (len 1). It must not match a target like
 	// `aws_instance.foo` and must not panic in the matchesTarget length
-	// guard. `foo[*]` exercises the same path via SplatExpr.
+	// guard. `foo[*]` exercises the same path via SplatExpr. The bare
+	// `aws_instance.foo.id` ensures at least one edit is produced so the
+	// "no matches" error doesn't fire.
 	tmp := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmp, "a.tf"),
-		[]byte("locals {\n  a = foo[var.i]\n  b = foo[*]\n}\n"), 0o644))
+		[]byte("locals {\n  a = foo[var.i]\n  b = foo[*]\n  c = aws_instance.foo.id\n}\n"), 0o644))
 	target, err := ParseAddindexTarget("aws_instance.foo[0]")
 	require.NoError(t, err)
 	require.NoError(t, NewRenamer(tmp, target).Rename(true))

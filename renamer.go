@@ -46,6 +46,19 @@ type Target struct {
 	Key     IndexKey // unindex/addindex only
 }
 
+// describe returns a human-readable summary of the rename target, used in
+// "no matches" errors.
+func (t *Target) describe() string {
+	switch t.Kind {
+	case KindResource, KindData:
+		return fmt.Sprintf("%s %s.%s", t.Kind, t.OldType, t.OldName)
+	case KindUnindex, KindAddindex:
+		return fmt.Sprintf("%s %s.%s%s", t.Kind, t.OldType, t.OldName, t.Key.Format())
+	default:
+		return fmt.Sprintf("%s %s", t.Kind, t.OldName)
+	}
+}
+
 // IndexKey is the literal key inside a TYPE.NAME[KEY] reference.
 // When IsString is true the key is Str; otherwise it is the integer Int.
 // The zero value represents the integer key 0.
@@ -280,7 +293,8 @@ func NewRenamer(dir string, target *Target) *Renamer {
 
 // Rename applies the rename to every *.tf file in Dir.
 // When inPlace is true, files are rewritten on disk; otherwise the changed
-// output is written to r.Out.
+// output is written to r.Out. Returns an error if no matches are found —
+// silent no-ops usually mean a typo.
 func (r *Renamer) Rename(inPlace bool) error {
 	if err := r.load(); err != nil {
 		return err
@@ -292,15 +306,20 @@ func (r *Renamer) Rename(inPlace bool) error {
 			}
 		}
 	}
+	matched := false
 	for _, fs := range r.files {
 		edits := r.collectEdits(fs)
 		if len(edits) == 0 {
 			continue
 		}
+		matched = true
 		newSrc := applyEdits(fs.src, edits)
 		if err := r.write(fs.path, newSrc, inPlace); err != nil {
 			return err
 		}
+	}
+	if !matched {
+		return fmt.Errorf("no matches found for %s in %s", r.Target.describe(), r.Dir)
 	}
 	return nil
 }

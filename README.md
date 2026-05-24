@@ -206,4 +206,5 @@ tfrename variable env environment -C ./infra -i
 - Multi-file projects work — `*.tf` files are scanned together.
 - References buried in interpolations (`"web-${var.region}"`) are rewritten.
 - Parse errors are reported; nothing is written if any file fails to parse.
+- If nothing in any `*.tf` file matches the target, the command exits non-zero with a "no matches found" message — silent no-ops are almost always typos.
 - `output` renames only the declaration. Outputs aren't referenced within the same module.
