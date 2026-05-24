@@ -46,22 +46,37 @@ Flags:
       --version    Show version.
 
 Commands:
-  resource <old> <new> [flags]    # old/new in TYPE.NAME form
-  data     <old> <new> [flags]    # old/new in TYPE.NAME form
-  module   <old> <new> [flags]
-  variable <old> <new> [flags]
-  output   <old> <new> [flags]
-  local    <old> <new> [flags]
-  unindex  <ref> [flags]          # ref in TYPE.NAME[KEY] form
-  addindex <ref> [flags]          # ref in TYPE.NAME[KEY] form
+  resource <old> <new> [flags]
+    Rename a resource (TYPE.NAME form).
 
-Per-command flags:
-  -C, --dir="."     Directory containing *.tf files (default: ".").
-  -i, --in-place    Write changes back to files instead of stdout.
-  -v, --verbose     Verbose logging.
+  data <old> <new> [flags]
+    Rename a data source (TYPE.NAME form).
+
+  module <old> <new> [flags]
+    Rename a module.
+
+  variable <old> <new> [flags]
+    Rename a variable.
+
+  output <old> <new> [flags]
+    Rename an output.
+
+  local <old> <new> [flags]
+    Rename a local.
+
+  unindex <ref> [flags]
+    Strip [KEY] from references — use after deleting count/for_each.
+
+  addindex <ref> [flags]
+    Insert [KEY] into bare references — use after adding count/for_each.
+
+  install-completions [flags]
+    Install shell completions.
+
+Run "tfrename <command> --help" for more information on a command.
 ```
 
-By default the result is printed to stdout. Pass `-i` / `--in-place` to rewrite the files on disk.
+By default the result is printed to stdout. Pass `-i` / `--in-place` to rewrite the files on disk. The `resource` and `module` subcommands accept `--moved`, which inserts a `moved` block above the renamed declaration so Terraform recognizes the state move rather than destroying and recreating.
 
 ## Examples
 
@@ -118,6 +133,49 @@ The `TYPE.NAME` form lets you change the type at the same time:
 
 ```sh
 tfrename resource aws_instance.foo aws_db_instance.bar -i
+```
+
+### Emit a `moved` block (resource / module only)
+
+Pass `--moved` to `resource` or `module` to drop a `moved` block above the
+renamed declaration. Without it, Terraform will plan to destroy the old
+address and create the new one; with it, the rename becomes a state move.
+
+```sh
+tfrename resource aws_instance.foo aws_db_instance.bar --moved -i
+```
+
+```hcl
+# main.tf (rewritten)
+moved {
+  from = aws_instance.foo
+  to   = aws_db_instance.bar
+}
+
+resource "aws_db_instance" "bar" {
+  ami = "ami-123"
+}
+```
+
+For `module`, a single block at the parent level covers every resource inside
+the module — Terraform automatically rewrites addresses like
+`module.old.aws_instance.x` to `module.new.aws_instance.x`. You don't need a
+per-resource `moved` block.
+
+```sh
+tfrename module vpc network --moved -i
+```
+
+```hcl
+# main.tf (rewritten)
+moved {
+  from = module.vpc
+  to   = module.network
+}
+
+module "network" {
+  source = "./modules/vpc"
+}
 ```
 
 ### Strip an index after deleting `count` / `for_each`

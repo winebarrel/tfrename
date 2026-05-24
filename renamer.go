@@ -267,6 +267,10 @@ type Renamer struct {
 	Target  *Target
 	Out     io.Writer
 	Verbose bool
+	// Moved, when true, inserts a `moved { from = ...; to = ... }` block
+	// directly above the renamed declaration. Only valid for KindResource
+	// and KindModule — other kinds don't have Terraform state addresses.
+	Moved bool
 
 	files []*fileState
 }
@@ -465,6 +469,11 @@ func (r *Renamer) collectDeclEdits(fs *fileState) []edit {
 					replace: rewriteLabel(fs.src, blk.LabelRanges[1], r.Target.NewName),
 				},
 			)
+			if r.Moved && r.Target.Kind == KindResource {
+				edits = append(edits, r.movedInsertEdit(blk,
+					r.Target.OldType+"."+r.Target.OldName,
+					r.Target.NewType+"."+r.Target.NewName))
+			}
 			if r.Verbose {
 				log.Printf("  - %s %s.%s -> %s.%s in %s", bt, r.Target.OldType, r.Target.OldName, r.Target.NewType, r.Target.NewName, fs.path)
 			}
@@ -483,6 +492,11 @@ func (r *Renamer) collectDeclEdits(fs *fileState) []edit {
 				end:     blk.LabelRanges[0].End.Byte,
 				replace: rewriteLabel(fs.src, blk.LabelRanges[0], r.Target.NewName),
 			})
+			if r.Moved && r.Target.Kind == KindModule {
+				edits = append(edits, r.movedInsertEdit(blk,
+					"module."+r.Target.OldName,
+					"module."+r.Target.NewName))
+			}
 			if r.Verbose {
 				log.Printf("  - %s %s -> %s in %s", bt, r.Target.OldName, r.Target.NewName, fs.path)
 			}
@@ -507,6 +521,20 @@ func (r *Renamer) collectDeclEdits(fs *fileState) []edit {
 		}
 	}
 	return edits
+}
+
+// movedInsertEdit produces an insertion edit that places a `moved` block
+// directly above blk, followed by a blank line so it visually pairs with
+// the declaration. resource and module blocks are always top-level, so
+// no indent handling is needed.
+func (r *Renamer) movedInsertEdit(blk *hclsyntax.Block, fromAddr, toAddr string) edit {
+	start := blk.TypeRange.Start.Byte
+	return edit{
+		start: start,
+		end:   start,
+		replace: fmt.Appendf(nil, "moved {\n  from = %s\n  to   = %s\n}\n\n",
+			fromAddr, toAddr),
+	}
 }
 
 // rewriteLabel preserves the surrounding quote style of the original label.

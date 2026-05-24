@@ -54,13 +54,14 @@ type commonFlags struct {
 }
 
 type resourceCmd struct {
-	Old string `arg:"" predictor:"resource-name" help:"Old name in TYPE.NAME form."`
-	New string `arg:"" help:"New name in TYPE.NAME form."`
+	Old   string `arg:"" predictor:"resource-name" help:"Old name in TYPE.NAME form."`
+	New   string `arg:"" help:"New name in TYPE.NAME form."`
+	Moved bool   `name:"moved" help:"Insert a 'moved' block above the renamed declaration."`
 	commonFlags
 }
 
 func (c *resourceCmd) Run() error {
-	return runRename(tfrename.KindResource, c.Old, c.New, c.Dir, c.InPlace, c.Verbose)
+	return runRename(tfrename.KindResource, c.Old, c.New, c.Dir, c.InPlace, c.Verbose, c.Moved)
 }
 
 type dataCmd struct {
@@ -70,17 +71,18 @@ type dataCmd struct {
 }
 
 func (c *dataCmd) Run() error {
-	return runRename(tfrename.KindData, c.Old, c.New, c.Dir, c.InPlace, c.Verbose)
+	return runRename(tfrename.KindData, c.Old, c.New, c.Dir, c.InPlace, c.Verbose, false)
 }
 
 type moduleCmd struct {
-	Old string `arg:"" predictor:"module-name" help:"Old name."`
-	New string `arg:"" help:"New name."`
+	Old   string `arg:"" predictor:"module-name" help:"Old name."`
+	New   string `arg:"" help:"New name."`
+	Moved bool   `name:"moved" help:"Insert a 'moved' block above the renamed declaration."`
 	commonFlags
 }
 
 func (c *moduleCmd) Run() error {
-	return runRename(tfrename.KindModule, c.Old, c.New, c.Dir, c.InPlace, c.Verbose)
+	return runRename(tfrename.KindModule, c.Old, c.New, c.Dir, c.InPlace, c.Verbose, c.Moved)
 }
 
 type variableCmd struct {
@@ -90,7 +92,7 @@ type variableCmd struct {
 }
 
 func (c *variableCmd) Run() error {
-	return runRename(tfrename.KindVariable, c.Old, c.New, c.Dir, c.InPlace, c.Verbose)
+	return runRename(tfrename.KindVariable, c.Old, c.New, c.Dir, c.InPlace, c.Verbose, false)
 }
 
 type outputCmd struct {
@@ -100,7 +102,7 @@ type outputCmd struct {
 }
 
 func (c *outputCmd) Run() error {
-	return runRename(tfrename.KindOutput, c.Old, c.New, c.Dir, c.InPlace, c.Verbose)
+	return runRename(tfrename.KindOutput, c.Old, c.New, c.Dir, c.InPlace, c.Verbose, false)
 }
 
 type localCmd struct {
@@ -110,7 +112,7 @@ type localCmd struct {
 }
 
 func (c *localCmd) Run() error {
-	return runRename(tfrename.KindLocal, c.Old, c.New, c.Dir, c.InPlace, c.Verbose)
+	return runRename(tfrename.KindLocal, c.Old, c.New, c.Dir, c.InPlace, c.Verbose, false)
 }
 
 type unindexCmd struct {
@@ -156,13 +158,14 @@ type cli struct {
 	Version            kong.VersionFlag             `help:"Show version."`
 }
 
-func runRename(kind tfrename.Kind, old, newName, dir string, inPlace, verbose bool) error {
+func runRename(kind tfrename.Kind, old, newName, dir string, inPlace, verbose, moved bool) error {
 	target, err := tfrename.ParseTarget(kind, old, newName)
 	if err != nil {
 		return err
 	}
 	r := tfrename.NewRenamer(dir, target)
 	r.Verbose = verbose
+	r.Moved = moved
 	return r.Rename(inPlace)
 }
 

@@ -14,27 +14,30 @@ import (
 )
 
 type goldenCase struct {
-	name string
-	kind Kind
-	old  string
-	new  string
+	name  string
+	kind  Kind
+	old   string
+	new   string
+	moved bool
 }
 
 func TestRename_Golden(t *testing.T) {
 	cases := []goldenCase{
-		{"resource", KindResource, "aws_instance.foo", "aws_instance.bar"},
-		{"data", KindData, "aws_ami.ubuntu", "aws_ami.debian"},
-		{"module", KindModule, "vpc", "network"},
-		{"variable", KindVariable, "region", "aws_region"},
-		{"output", KindOutput, "instance_id", "id"},
-		{"local", KindLocal, "region", "aws_region"},
-		{"multi-file", KindVariable, "env", "environment"},
-		{"preserve-comments", KindVariable, "region", "aws_region"},
-		{"type-rename", KindResource, "aws_instance.foo", "aws_db_instance.bar"},
-		{"unindex", KindUnindex, "aws_instance.foo[0]", ""},
-		{"unindex-string", KindUnindex, `zoo_thing.baz["hoge"]`, ""},
-		{"addindex", KindAddindex, "aws_instance.foo[0]", ""},
-		{"addindex-string", KindAddindex, `zoo_thing.baz["zoo"]`, ""},
+		{name: "resource", kind: KindResource, old: "aws_instance.foo", new: "aws_instance.bar"},
+		{name: "data", kind: KindData, old: "aws_ami.ubuntu", new: "aws_ami.debian"},
+		{name: "module", kind: KindModule, old: "vpc", new: "network"},
+		{name: "variable", kind: KindVariable, old: "region", new: "aws_region"},
+		{name: "output", kind: KindOutput, old: "instance_id", new: "id"},
+		{name: "local", kind: KindLocal, old: "region", new: "aws_region"},
+		{name: "multi-file", kind: KindVariable, old: "env", new: "environment"},
+		{name: "preserve-comments", kind: KindVariable, old: "region", new: "aws_region"},
+		{name: "type-rename", kind: KindResource, old: "aws_instance.foo", new: "aws_db_instance.bar"},
+		{name: "unindex", kind: KindUnindex, old: "aws_instance.foo[0]"},
+		{name: "unindex-string", kind: KindUnindex, old: `zoo_thing.baz["hoge"]`},
+		{name: "addindex", kind: KindAddindex, old: "aws_instance.foo[0]"},
+		{name: "addindex-string", kind: KindAddindex, old: `zoo_thing.baz["zoo"]`},
+		{name: "moved-resource", kind: KindResource, old: "aws_instance.foo", new: "aws_db_instance.bar", moved: true},
+		{name: "moved-module", kind: KindModule, old: "vpc", new: "network", moved: true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -54,6 +57,7 @@ func TestRename_Golden(t *testing.T) {
 			require.NoError(t, err)
 			r := NewRenamer(tmp, target)
 			r.Verbose = true
+			r.Moved = c.moved
 			require.NoError(t, r.Rename(true))
 			compareDir(t, tmp, filepath.Join("testdata", c.name, "expected"))
 		})
