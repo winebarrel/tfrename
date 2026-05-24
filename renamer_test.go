@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zclconf/go-cty/cty"
 )
 
 type goldenCase struct {
@@ -31,11 +32,21 @@ func TestRename_Golden(t *testing.T) {
 		{"preserve-comments", KindVariable, "region", "aws_region"},
 		{"no-match", KindVariable, "no_such_var", "renamed"},
 		{"type-rename", KindResource, "aws_instance.foo", "aws_db_instance.bar"},
+		{"unindex", KindUnindex, "aws_instance.foo[0]", ""},
+		{"unindex-string", KindUnindex, `zoo_thing.baz["hoge"]`, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			tmp := copyInputToTemp(t, filepath.Join("testdata", c.name, "input"))
-			target, err := ParseTarget(c.kind, c.old, c.new)
+			var (
+				target *Target
+				err    error
+			)
+			if c.kind == KindUnindex {
+				target, err = ParseUnindexTarget(c.old)
+			} else {
+				target, err = ParseTarget(c.kind, c.old, c.new)
+			}
 			require.NoError(t, err)
 			r := NewRenamer(tmp, target)
 			r.Verbose = true
@@ -210,6 +221,52 @@ func TestParseTarget_UnknownKind(t *testing.T) {
 	require.Error(t, err)
 }
 
+// ----------------- ParseUnindexTarget -----------------
+
+func TestParseUnindexTarget_Int(t *testing.T) {
+	target, err := ParseUnindexTarget("aws_instance.foo[0]")
+	require.NoError(t, err)
+	assert.Equal(t, KindUnindex, target.Kind)
+	assert.Equal(t, "aws_instance", target.OldType)
+	assert.Equal(t, "foo", target.OldName)
+	assert.False(t, target.Key.IsString)
+	assert.Equal(t, int64(0), target.Key.Int)
+}
+
+func TestParseUnindexTarget_String(t *testing.T) {
+	target, err := ParseUnindexTarget(`zoo_thing.baz["hoge"]`)
+	require.NoError(t, err)
+	assert.True(t, target.Key.IsString)
+	assert.Equal(t, "hoge", target.Key.Str)
+}
+
+func TestParseUnindexTarget_Invalid(t *testing.T) {
+	for _, s := range []string{
+		"",
+		"foo.bar",                  // no index
+		"foo.bar[]",                // empty index
+		"foo[0]",                   // no name
+		".bar[0]",                  // no type
+		"foo.bar[abc]",             // bareword, not literal
+		`foo.bar["he"llo"]`,        // embedded quote
+		`foo.bar["esc\n"]`,         // backslash escape, unsupported
+		"foo.bar[-1]",              // negative integer
+		"foo.bar[0",                // missing ]
+		"foo.bar 0]",               // missing [
+		"1foo.bar[0]",              // digit-leading type
+		"foo.1bar[0]",              // digit-leading name
+		"foo.bar[0].id",            // trailing attribute
+	} {
+		_, err := ParseUnindexTarget(s)
+		require.Errorf(t, err, "expected error for %q", s)
+	}
+}
+
+func TestIndexKey_Format(t *testing.T) {
+	assert.Equal(t, "[3]", IndexKey{Int: 3}.Format())
+	assert.Equal(t, `["x"]`, IndexKey{IsString: true, Str: "x"}.Format())
+}
+
 // ----------------- rewriteLabel -----------------
 
 func TestRewriteLabel_QuotedAndUnquoted(t *testing.T) {
@@ -337,6 +394,48 @@ func TestMatchResourceRef_Misses(t *testing.T) {
 	// attr.Name mismatch
 	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "other"}}
 	assert.Nil(t, matchResourceRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+}
+
+func TestMatchUnindexRef_Misses(t *testing.T) {
+	target := &Target{Kind: KindUnindex, OldType: "aws_instance", OldName: "foo", Key: IndexKey{Int: 0}}
+	fs := &fileState{path: "x.tf"}
+
+	// root.Name mismatch
+	tr := hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: "foo"}, hcl.TraverseIndex{Key: cty.NumberIntVal(0)}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// len(tr) < 3
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "foo"}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// tr[1] not TraverseAttr
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseIndex{}, hcl.TraverseIndex{Key: cty.NumberIntVal(0)}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// attr.Name mismatch
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "other"}, hcl.TraverseIndex{Key: cty.NumberIntVal(0)}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// tr[2] not TraverseIndex
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "foo"}, hcl.TraverseAttr{Name: "id"}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// key value mismatch (int vs int)
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "foo"}, hcl.TraverseIndex{Key: cty.NumberIntVal(1)}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// key type mismatch (want int, got string)
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "foo"}, hcl.TraverseIndex{Key: cty.StringVal("0")}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// key type mismatch (want string, got int)
+	strTarget := &Target{Kind: KindUnindex, OldType: "aws_instance", OldName: "foo", Key: IndexKey{IsString: true, Str: "hoge"}}
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "foo"}, hcl.TraverseIndex{Key: cty.NumberIntVal(0)}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), strTarget, fs, false))
+
+	// non-exact integer (e.g. 0.5) doesn't match int key 0
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "foo"}, hcl.TraverseIndex{Key: cty.NumberFloatVal(0.5)}}
+	assert.Nil(t, matchUnindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
 }
 
 func TestMatchDataRef_Misses(t *testing.T) {

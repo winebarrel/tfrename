@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // identRE matches a valid Terraform identifier:
@@ -29,15 +32,87 @@ const (
 	KindVariable Kind = "variable"
 	KindOutput   Kind = "output"
 	KindLocal    Kind = "local"
+	KindUnindex  Kind = "unindex"
 )
 
 // Target describes what to rename.
 type Target struct {
 	Kind    Kind
-	OldType string // resource/data only
+	OldType string // resource/data/unindex only
 	OldName string
 	NewType string // resource/data only
 	NewName string
+	Key     IndexKey // unindex only
+}
+
+// IndexKey is the literal key inside a TYPE.NAME[KEY] reference.
+// Exactly one of IsString / numeric forms is meaningful; the zero value is invalid.
+type IndexKey struct {
+	IsString bool
+	Int      int64
+	Str      string
+}
+
+// Format returns the original `[...]` text, used for log messages.
+func (k IndexKey) Format() string {
+	if k.IsString {
+		return fmt.Sprintf("[%q]", k.Str)
+	}
+	return fmt.Sprintf("[%d]", k.Int)
+}
+
+// matches reports whether a TraverseIndex node has the same key as k.
+func (k IndexKey) matches(idx hcl.TraverseIndex) bool {
+	if k.IsString {
+		return idx.Key.Type() == cty.String && idx.Key.AsString() == k.Str
+	}
+	if idx.Key.Type() != cty.Number {
+		return false
+	}
+	n, acc := idx.Key.AsBigFloat().Int64()
+	return acc == big.Exact && n == k.Int
+}
+
+// unindexRE matches `TYPE.NAME[KEY]`. KEY can be any non-empty content;
+// validity (integer or quoted string) is checked separately.
+var unindexRE = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_-]*)\.([A-Za-z_][A-Za-z0-9_-]*)\[(.+)\]$`)
+
+// ParseUnindexTarget parses a single TYPE.NAME[KEY] argument for the unindex
+// command. KEY must be a non-negative integer literal or a double-quoted
+// string (without embedded escape sequences).
+func ParseUnindexTarget(s string) (*Target, error) {
+	m := unindexRE.FindStringSubmatch(s)
+	if m == nil {
+		return nil, fmt.Errorf("unindex argument must be in TYPE.NAME[KEY] format: %q", s)
+	}
+	key, err := parseIndexKey(m[3])
+	if err != nil {
+		return nil, fmt.Errorf("invalid key in %q: %w", s, err)
+	}
+	return &Target{
+		Kind:    KindUnindex,
+		OldType: m[1],
+		OldName: m[2],
+		Key:     key,
+	}, nil
+}
+
+func parseIndexKey(s string) (IndexKey, error) {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		inner := s[1 : len(s)-1]
+		if strings.ContainsRune(inner, '"') || strings.ContainsRune(inner, '\\') {
+			return IndexKey{}, fmt.Errorf("string keys with escapes or embedded quotes are not supported: %q", s)
+		}
+		return IndexKey{IsString: true, Str: inner}, nil
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return IndexKey{}, fmt.Errorf("key %q is neither integer nor quoted string", s)
+	}
+	if n < 0 {
+		return IndexKey{}, fmt.Errorf("integer key must be non-negative: %d", n)
+	}
+	return IndexKey{Int: n}, nil
 }
 
 // ParseTarget validates and parses raw old/new strings into a Target.
@@ -358,8 +433,33 @@ func (r *Renamer) matchTraversal(tr hcl.Traversal, fs *fileState) []edit {
 		return matchResourceRef(tr, root, r.Target, fs, r.Verbose)
 	case KindData:
 		return matchDataRef(tr, root, r.Target, fs, r.Verbose)
+	case KindUnindex:
+		return matchUnindexRef(tr, root, r.Target, fs, r.Verbose)
 	}
 	return nil
+}
+
+// matchUnindexRef matches `<type>.<name>[<key>]...` references and emits an
+// edit that removes the `[<key>]` part, leaving `<type>.<name>...`.
+func matchUnindexRef(tr hcl.Traversal, root hcl.TraverseRoot, t *Target, fs *fileState, verbose bool) []edit {
+	if root.Name != t.OldType || len(tr) < 3 {
+		return nil
+	}
+	attr, ok := tr[1].(hcl.TraverseAttr)
+	if !ok || attr.Name != t.OldName {
+		return nil
+	}
+	idx, ok := tr[2].(hcl.TraverseIndex)
+	if !ok || !t.Key.matches(idx) {
+		return nil
+	}
+	if verbose {
+		log.Printf("  - ref %s.%s%s -> %s.%s in %s", t.OldType, t.OldName, t.Key.Format(), t.OldType, t.OldName, fs.path)
+	}
+	return []edit{{
+		start: idx.SrcRange.Start.Byte,
+		end:   idx.SrcRange.End.Byte,
+	}}
 }
 
 // matchSimpleRef matches `<prefix>.<oldName>...` where prefix is fixed.

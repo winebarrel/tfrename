@@ -52,6 +52,7 @@ Commands:
   variable <old> <new> [flags]
   output   <old> <new> [flags]
   local    <old> <new> [flags]
+  unindex  <ref> [flags]          # ref in TYPE.NAME[KEY] form
 
 Per-command flags:
   -C, --dir="."     Directory containing *.tf files (default: ".").
@@ -116,6 +117,44 @@ The `TYPE.NAME` form lets you change the type at the same time:
 
 ```sh
 tfrename resource aws_instance.foo aws_db_instance.bar -i
+```
+
+### Strip an index after deleting `count` / `for_each`
+
+When you remove `count` or `for_each` from a resource, references that used the
+index (`foo.bar[0]`, `zoo.baz["hoge"]`) no longer resolve and must be flattened
+to the bare form. `unindex` rewrites only those references; the declaration
+block is left alone (you delete the `count` / `for_each` line yourself).
+
+```hcl
+# main.tf
+resource "aws_instance" "foo" {
+  count = 1
+  ami   = "ami-123"
+}
+
+output "ip" { value = aws_instance.foo[0].public_ip }
+```
+
+```sh
+tfrename unindex 'aws_instance.foo[0]' -i
+# then manually delete `count = 1`
+```
+
+```hcl
+# main.tf (rewritten)
+resource "aws_instance" "foo" {
+  ami = "ami-123"
+}
+
+output "ip" { value = aws_instance.foo.public_ip }
+```
+
+String keys (from `for_each`) work the same way — quote the whole argument so
+the shell doesn't eat the brackets:
+
+```sh
+tfrename unindex 'zoo_thing.baz["hoge"]' -i
 ```
 
 ### Target a different directory
