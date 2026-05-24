@@ -312,20 +312,46 @@ func TestParseAddindexTarget_Invalid(t *testing.T) {
 
 // ----------------- addindex error path -----------------
 
-func TestAddindex_ConflictWithExistingIndex(t *testing.T) {
-	tmp := copyInputToTemp(t, "testdata/addindex-conflict/input")
+func TestAddindex_ShortCollectionTraversalIgnored(t *testing.T) {
+	// `foo[var.i]` is an IndexExpr whose collection traversal is just
+	// `[Root(foo)]` (len 1). It must not match a target like
+	// `aws_instance.foo` and must not panic in the matchesTarget length
+	// guard. `foo[*]` exercises the same path via SplatExpr.
+	tmp := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "a.tf"),
+		[]byte("locals {\n  a = foo[var.i]\n  b = foo[*]\n}\n"), 0o644))
 	target, err := ParseAddindexTarget("aws_instance.foo[0]")
 	require.NoError(t, err)
-	r := NewRenamer(tmp, target)
-	err = r.Rename(true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "already has an index")
-	// And confirm the input file was not modified.
-	got, err := os.ReadFile(filepath.Join(tmp, "main.tf"))
-	require.NoError(t, err)
-	want, err := os.ReadFile("testdata/addindex-conflict/input/main.tf")
-	require.NoError(t, err)
-	assert.Equal(t, string(want), string(got), "file must not change when addindex aborts")
+	require.NoError(t, NewRenamer(tmp, target).Rename(true))
+}
+
+func TestAddindex_Conflicts(t *testing.T) {
+	cases := []struct {
+		name        string
+		fixture     string
+		wantErrFrag string
+	}{
+		{"literal-index", "testdata/addindex-conflict/input", "already has an index"},
+		{"dynamic-index", "testdata/addindex-conflict-dynamic/input", "already has a dynamic index"},
+		{"splat-index", "testdata/addindex-conflict-splat/input", "already has a splat index"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tmp := copyInputToTemp(t, c.fixture)
+			target, err := ParseAddindexTarget("aws_instance.foo[0]")
+			require.NoError(t, err)
+			r := NewRenamer(tmp, target)
+			err = r.Rename(true)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), c.wantErrFrag)
+			// File must remain untouched.
+			got, err := os.ReadFile(filepath.Join(tmp, "main.tf"))
+			require.NoError(t, err)
+			want, err := os.ReadFile(filepath.Join(c.fixture, "main.tf"))
+			require.NoError(t, err)
+			assert.Equal(t, string(want), string(got), "file must not change when addindex aborts")
+		})
+	}
 }
 
 // ----------------- rewriteLabel -----------------

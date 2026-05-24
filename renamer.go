@@ -307,32 +307,57 @@ func (r *Renamer) Rename(inPlace bool) error {
 
 // checkNoExistingIndex aborts addindex if any TYPE.NAME reference already has
 // an index — the user must explicitly resolve those before adding an index.
+//
+// Three HCL shapes are caught here:
+//  1. literal index inside a ScopeTraversalExpr — `foo.bar[0]`
+//  2. dynamic IndexExpr around a ScopeTraversalExpr — `foo.bar[var.i]`
+//  3. SplatExpr around a ScopeTraversalExpr — `foo.bar[*]`
+//
+// Without (2) and (3), the inner traversal `foo.bar` looks bare to the
+// matcher and would get a stray `[0]` inserted, producing nonsense like
+// `foo.bar[0][var.i]`.
 func (r *Renamer) checkNoExistingIndex(fs *fileState) error {
 	var firstErr error
+	abort := func(rng hcl.Range, label string) {
+		if firstErr == nil {
+			firstErr = fmt.Errorf("%s:%d,%d: %s.%s already has %s; addindex requires bare references only",
+				fs.path, rng.Start.Line, rng.Start.Column, r.Target.OldType, r.Target.OldName, label)
+		}
+	}
+	matchesTarget := func(tr hcl.Traversal) bool {
+		if len(tr) < 2 {
+			return false
+		}
+		root, ok := tr[0].(hcl.TraverseRoot)
+		if !ok || root.Name != r.Target.OldType {
+			return false
+		}
+		attr, ok := tr[1].(hcl.TraverseAttr)
+		return ok && attr.Name == r.Target.OldName
+	}
 	hclsyntax.VisitAll(fs.body, func(node hclsyntax.Node) hcl.Diagnostics {
 		if firstErr != nil {
 			return nil
 		}
-		ste, ok := node.(*hclsyntax.ScopeTraversalExpr)
-		if !ok {
-			return nil
-		}
-		tr := ste.Traversal
-		if len(tr) < 3 {
-			return nil
-		}
-		root, ok := tr[0].(hcl.TraverseRoot)
-		if !ok || root.Name != r.Target.OldType {
-			return nil
-		}
-		attr, ok := tr[1].(hcl.TraverseAttr)
-		if !ok || attr.Name != r.Target.OldName {
-			return nil
-		}
-		if _, isIdx := tr[2].(hcl.TraverseIndex); isIdx {
-			rng := ste.Range()
-			firstErr = fmt.Errorf("%s:%d,%d: %s.%s already has an index; addindex requires bare references only",
-				fs.path, rng.Start.Line, rng.Start.Column, r.Target.OldType, r.Target.OldName)
+		switch e := node.(type) {
+		case *hclsyntax.ScopeTraversalExpr:
+			tr := e.Traversal
+			if len(tr) < 3 || !matchesTarget(tr) {
+				return nil
+			}
+			if _, isIdx := tr[2].(hcl.TraverseIndex); isIdx {
+				abort(e.Range(), "an index")
+			}
+		case *hclsyntax.IndexExpr:
+			ste, ok := e.Collection.(*hclsyntax.ScopeTraversalExpr)
+			if ok && matchesTarget(ste.Traversal) {
+				abort(e.Range(), "a dynamic index")
+			}
+		case *hclsyntax.SplatExpr:
+			ste, ok := e.Source.(*hclsyntax.ScopeTraversalExpr)
+			if ok && matchesTarget(ste.Traversal) {
+				abort(e.Range(), "a splat index")
+			}
 		}
 		return nil
 	})
