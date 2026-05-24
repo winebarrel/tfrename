@@ -33,16 +33,17 @@ const (
 	KindOutput   Kind = "output"
 	KindLocal    Kind = "local"
 	KindUnindex  Kind = "unindex"
+	KindAddindex Kind = "addindex"
 )
 
 // Target describes what to rename.
 type Target struct {
 	Kind    Kind
-	OldType string // resource/data/unindex only
+	OldType string // resource/data/unindex/addindex only
 	OldName string
 	NewType string // resource/data only
 	NewName string
-	Key     IndexKey // unindex only
+	Key     IndexKey // unindex/addindex only
 }
 
 // IndexKey is the literal key inside a TYPE.NAME[KEY] reference.
@@ -74,24 +75,35 @@ func (k IndexKey) matches(idx hcl.TraverseIndex) bool {
 	return acc == big.Exact && n == k.Int
 }
 
-// unindexRE matches `TYPE.NAME[KEY]`. KEY can be any non-empty content;
+// indexedRefRE matches `TYPE.NAME[KEY]`. KEY can be any non-empty content;
 // validity (integer or quoted string) is checked separately.
-var unindexRE = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_-]*)\.([A-Za-z_][A-Za-z0-9_-]*)\[(.+)\]$`)
+var indexedRefRE = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_-]*)\.([A-Za-z_][A-Za-z0-9_-]*)\[(.+)\]$`)
 
 // ParseUnindexTarget parses a single TYPE.NAME[KEY] argument for the unindex
 // command. KEY must be a non-negative integer literal or a double-quoted
 // string (without embedded escape sequences).
 func ParseUnindexTarget(s string) (*Target, error) {
-	m := unindexRE.FindStringSubmatch(s)
+	return parseIndexedRef(s, KindUnindex)
+}
+
+// ParseAddindexTarget parses a single TYPE.NAME[KEY] argument for the addindex
+// command — the indexed form references should be rewritten to. Format and
+// constraints match ParseUnindexTarget.
+func ParseAddindexTarget(s string) (*Target, error) {
+	return parseIndexedRef(s, KindAddindex)
+}
+
+func parseIndexedRef(s string, kind Kind) (*Target, error) {
+	m := indexedRefRE.FindStringSubmatch(s)
 	if m == nil {
-		return nil, fmt.Errorf("unindex argument must be in TYPE.NAME[KEY] format: %q", s)
+		return nil, fmt.Errorf("%s argument must be in TYPE.NAME[KEY] format: %q", kind, s)
 	}
 	key, err := parseIndexKey(m[3])
 	if err != nil {
 		return nil, fmt.Errorf("invalid key in %q: %w", s, err)
 	}
 	return &Target{
-		Kind:    KindUnindex,
+		Kind:    kind,
 		OldType: m[1],
 		OldName: m[2],
 		Key:     key,
@@ -145,6 +157,8 @@ func ParseTarget(kind Kind, oldStr, newStr string) (*Target, error) {
 		t.NewName = newStr
 	case KindUnindex:
 		return nil, fmt.Errorf("kind %q must be parsed with ParseUnindexTarget", kind)
+	case KindAddindex:
+		return nil, fmt.Errorf("kind %q must be parsed with ParseAddindexTarget", kind)
 	default:
 		return nil, fmt.Errorf("unknown kind %q", kind)
 	}
@@ -271,6 +285,13 @@ func (r *Renamer) Rename(inPlace bool) error {
 	if err := r.load(); err != nil {
 		return err
 	}
+	if r.Target.Kind == KindAddindex {
+		for _, fs := range r.files {
+			if err := r.checkNoExistingIndex(fs); err != nil {
+				return err
+			}
+		}
+	}
 	for _, fs := range r.files {
 		edits := r.collectEdits(fs)
 		if len(edits) == 0 {
@@ -282,6 +303,40 @@ func (r *Renamer) Rename(inPlace bool) error {
 		}
 	}
 	return nil
+}
+
+// checkNoExistingIndex aborts addindex if any TYPE.NAME reference already has
+// an index — the user must explicitly resolve those before adding an index.
+func (r *Renamer) checkNoExistingIndex(fs *fileState) error {
+	var firstErr error
+	hclsyntax.VisitAll(fs.body, func(node hclsyntax.Node) hcl.Diagnostics {
+		if firstErr != nil {
+			return nil
+		}
+		ste, ok := node.(*hclsyntax.ScopeTraversalExpr)
+		if !ok {
+			return nil
+		}
+		tr := ste.Traversal
+		if len(tr) < 3 {
+			return nil
+		}
+		root, ok := tr[0].(hcl.TraverseRoot)
+		if !ok || root.Name != r.Target.OldType {
+			return nil
+		}
+		attr, ok := tr[1].(hcl.TraverseAttr)
+		if !ok || attr.Name != r.Target.OldName {
+			return nil
+		}
+		if _, isIdx := tr[2].(hcl.TraverseIndex); isIdx {
+			rng := ste.Range()
+			firstErr = fmt.Errorf("%s:%d,%d: %s.%s already has an index; addindex requires bare references only",
+				fs.path, rng.Start.Line, rng.Start.Column, r.Target.OldType, r.Target.OldName)
+		}
+		return nil
+	})
+	return firstErr
 }
 
 func (r *Renamer) load() error {
@@ -438,8 +493,37 @@ func (r *Renamer) matchTraversal(tr hcl.Traversal, fs *fileState) []edit {
 		return matchDataRef(tr, root, r.Target, fs, r.Verbose)
 	case KindUnindex:
 		return matchUnindexRef(tr, root, r.Target, fs, r.Verbose)
+	case KindAddindex:
+		return matchAddindexRef(tr, root, r.Target, fs, r.Verbose)
 	}
 	return nil
+}
+
+// matchAddindexRef matches bare `<type>.<name>...` references (without an
+// index at position 2) and emits an edit that inserts `[<key>]` right after
+// the name. References that already have an index are left untouched here;
+// checkNoExistingIndex catches them before any edits are applied.
+func matchAddindexRef(tr hcl.Traversal, root hcl.TraverseRoot, t *Target, fs *fileState, verbose bool) []edit {
+	if root.Name != t.OldType || len(tr) < 2 {
+		return nil
+	}
+	attr, ok := tr[1].(hcl.TraverseAttr)
+	if !ok || attr.Name != t.OldName {
+		return nil
+	}
+	if len(tr) >= 3 {
+		if _, isIdx := tr[2].(hcl.TraverseIndex); isIdx {
+			return nil
+		}
+	}
+	if verbose {
+		log.Printf("  - ref %s.%s -> %s.%s%s in %s", t.OldType, t.OldName, t.OldType, t.OldName, t.Key.Format(), fs.path)
+	}
+	return []edit{{
+		start:   attr.SrcRange.End.Byte,
+		end:     attr.SrcRange.End.Byte,
+		replace: []byte(t.Key.Format()),
+	}}
 }
 
 // matchUnindexRef matches `<type>.<name>[<key>]...` references and emits an

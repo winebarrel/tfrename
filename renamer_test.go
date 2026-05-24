@@ -34,6 +34,8 @@ func TestRename_Golden(t *testing.T) {
 		{"type-rename", KindResource, "aws_instance.foo", "aws_db_instance.bar"},
 		{"unindex", KindUnindex, "aws_instance.foo[0]", ""},
 		{"unindex-string", KindUnindex, `zoo_thing.baz["hoge"]`, ""},
+		{"addindex", KindAddindex, "aws_instance.foo[0]", ""},
+		{"addindex-string", KindAddindex, `zoo_thing.baz["zoo"]`, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -42,9 +44,12 @@ func TestRename_Golden(t *testing.T) {
 				target *Target
 				err    error
 			)
-			if c.kind == KindUnindex {
+			switch c.kind {
+			case KindUnindex:
 				target, err = ParseUnindexTarget(c.old)
-			} else {
+			case KindAddindex:
+				target, err = ParseAddindexTarget(c.old)
+			default:
 				target, err = ParseTarget(c.kind, c.old, c.new)
 			}
 			require.NoError(t, err)
@@ -227,6 +232,12 @@ func TestParseTarget_UnindexRoutedToDedicatedParser(t *testing.T) {
 	assert.Contains(t, err.Error(), "ParseUnindexTarget")
 }
 
+func TestParseTarget_AddindexRoutedToDedicatedParser(t *testing.T) {
+	_, err := ParseTarget(KindAddindex, "foo.bar[0]", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ParseAddindexTarget")
+}
+
 // ----------------- ParseUnindexTarget -----------------
 
 func TestParseUnindexTarget_Int(t *testing.T) {
@@ -271,6 +282,50 @@ func TestParseUnindexTarget_Invalid(t *testing.T) {
 func TestIndexKey_Format(t *testing.T) {
 	assert.Equal(t, "[3]", IndexKey{Int: 3}.Format())
 	assert.Equal(t, `["x"]`, IndexKey{IsString: true, Str: "x"}.Format())
+}
+
+// ----------------- ParseAddindexTarget -----------------
+
+func TestParseAddindexTarget_Int(t *testing.T) {
+	target, err := ParseAddindexTarget("aws_instance.foo[0]")
+	require.NoError(t, err)
+	assert.Equal(t, KindAddindex, target.Kind)
+	assert.Equal(t, "aws_instance", target.OldType)
+	assert.Equal(t, "foo", target.OldName)
+	assert.False(t, target.Key.IsString)
+	assert.Equal(t, int64(0), target.Key.Int)
+}
+
+func TestParseAddindexTarget_String(t *testing.T) {
+	target, err := ParseAddindexTarget(`zoo_thing.baz["zoo"]`)
+	require.NoError(t, err)
+	assert.True(t, target.Key.IsString)
+	assert.Equal(t, "zoo", target.Key.Str)
+}
+
+func TestParseAddindexTarget_Invalid(t *testing.T) {
+	for _, s := range []string{"", "foo.bar", "foo.bar[]", "foo.bar[abc]", "foo.bar[-1]"} {
+		_, err := ParseAddindexTarget(s)
+		require.Errorf(t, err, "expected error for %q", s)
+	}
+}
+
+// ----------------- addindex error path -----------------
+
+func TestAddindex_ConflictWithExistingIndex(t *testing.T) {
+	tmp := copyInputToTemp(t, "testdata/addindex-conflict/input")
+	target, err := ParseAddindexTarget("aws_instance.foo[0]")
+	require.NoError(t, err)
+	r := NewRenamer(tmp, target)
+	err = r.Rename(true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already has an index")
+	// And confirm the input file was not modified.
+	got, err := os.ReadFile(filepath.Join(tmp, "main.tf"))
+	require.NoError(t, err)
+	want, err := os.ReadFile("testdata/addindex-conflict/input/main.tf")
+	require.NoError(t, err)
+	assert.Equal(t, string(want), string(got), "file must not change when addindex aborts")
 }
 
 // ----------------- rewriteLabel -----------------
@@ -400,6 +455,31 @@ func TestMatchResourceRef_Misses(t *testing.T) {
 	// attr.Name mismatch
 	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "other"}}
 	assert.Nil(t, matchResourceRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+}
+
+func TestMatchAddindexRef_Misses(t *testing.T) {
+	target := &Target{Kind: KindAddindex, OldType: "aws_instance", OldName: "foo", Key: IndexKey{Int: 0}}
+	fs := &fileState{path: "x.tf"}
+
+	// root.Name mismatch
+	tr := hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: "foo"}}
+	assert.Nil(t, matchAddindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// len(tr) < 2
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}}
+	assert.Nil(t, matchAddindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// tr[1] not TraverseAttr
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseIndex{}}
+	assert.Nil(t, matchAddindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// attr.Name mismatch
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "other"}}
+	assert.Nil(t, matchAddindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
+
+	// tr[2] is already a TraverseIndex — skip (pre-check would have errored)
+	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "foo"}, hcl.TraverseIndex{}}
+	assert.Nil(t, matchAddindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
 }
 
 func TestMatchUnindexRef_Misses(t *testing.T) {
