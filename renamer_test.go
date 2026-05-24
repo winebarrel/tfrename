@@ -332,6 +332,24 @@ func TestParseAddindexTarget_Invalid(t *testing.T) {
 
 // ----------------- addindex error path -----------------
 
+func TestMoved_IndentedTopLevelBlockKeepsLeadingWhitespace(t *testing.T) {
+	// Pathological but valid HCL: a top-level resource block with stray
+	// leading whitespace. The moved-block insertion must drop the new
+	// block at column 1 and leave the original block's indent untouched.
+	tmp := t.TempDir()
+	in := "  resource \"aws_instance\" \"foo\" {\n    ami = \"x\"\n  }\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmp, "a.tf"), []byte(in), 0o644))
+	target, err := ParseTarget(KindResource, "aws_instance.foo", "aws_instance.bar")
+	require.NoError(t, err)
+	r := NewRenamer(tmp, target)
+	r.Moved = true
+	require.NoError(t, r.Rename(true))
+	got, err := os.ReadFile(filepath.Join(tmp, "a.tf"))
+	require.NoError(t, err)
+	want := "moved {\n  from = aws_instance.foo\n  to   = aws_instance.bar\n}\n\n  resource \"aws_instance\" \"bar\" {\n    ami = \"x\"\n  }\n"
+	assert.Equal(t, want, string(got))
+}
+
 func TestAddindex_ShortCollectionTraversalIgnored(t *testing.T) {
 	// `foo[var.i]` is an IndexExpr whose collection traversal is just
 	// `[Root(foo)]` (len 1). It must not match a target like

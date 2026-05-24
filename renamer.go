@@ -470,7 +470,7 @@ func (r *Renamer) collectDeclEdits(fs *fileState) []edit {
 				},
 			)
 			if r.Moved && r.Target.Kind == KindResource {
-				edits = append(edits, r.movedInsertEdit(blk,
+				edits = append(edits, r.movedInsertEdit(fs, blk,
 					r.Target.OldType+"."+r.Target.OldName,
 					r.Target.NewType+"."+r.Target.NewName))
 			}
@@ -493,7 +493,7 @@ func (r *Renamer) collectDeclEdits(fs *fileState) []edit {
 				replace: rewriteLabel(fs.src, blk.LabelRanges[0], r.Target.NewName),
 			})
 			if r.Moved && r.Target.Kind == KindModule {
-				edits = append(edits, r.movedInsertEdit(blk,
+				edits = append(edits, r.movedInsertEdit(fs, blk,
 					"module."+r.Target.OldName,
 					"module."+r.Target.NewName))
 			}
@@ -525,10 +525,16 @@ func (r *Renamer) collectDeclEdits(fs *fileState) []edit {
 
 // movedInsertEdit produces an insertion edit that places a `moved` block
 // directly above blk, followed by a blank line so it visually pairs with
-// the declaration. resource and module blocks are always top-level, so
-// no indent handling is needed.
-func (r *Renamer) movedInsertEdit(blk *hclsyntax.Block, fromAddr, toAddr string) edit {
+// the declaration. resource and module blocks are normally top-level
+// (column 1), but if the block happens to be indented we still want any
+// leading whitespace on its line to stay with the declaration rather than
+// being consumed by the inserted block — so we walk back to the start of
+// the line first.
+func (r *Renamer) movedInsertEdit(fs *fileState, blk *hclsyntax.Block, fromAddr, toAddr string) edit {
 	start := blk.TypeRange.Start.Byte
+	for start > 0 && fs.src[start-1] != '\n' {
+		start--
+	}
 	return edit{
 		start: start,
 		end:   start,
