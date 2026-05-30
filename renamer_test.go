@@ -543,7 +543,7 @@ func TestMatchAddindexRef_Misses(t *testing.T) {
 	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "other"}}
 	assert.Nil(t, matchAddindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
 
-	// tr[2] is already a TraverseIndex — skip (pre-check would have errored)
+	// tr[2] is already a TraverseIndex; skip (pre-check would have errored)
 	tr = hcl.Traversal{hcl.TraverseRoot{Name: "aws_instance"}, hcl.TraverseAttr{Name: "foo"}, hcl.TraverseIndex{}}
 	assert.Nil(t, matchAddindexRef(tr, tr[0].(hcl.TraverseRoot), target, fs, false))
 }
@@ -627,7 +627,7 @@ func TestApplyEdits_OverlapIgnored(t *testing.T) {
 	src := []byte("hello world")
 	edits := []edit{
 		{start: 0, end: 5, replace: []byte("HELLO")},
-		{start: 2, end: 4, replace: []byte("XX")}, // overlaps with first → skipped
+		{start: 2, end: 4, replace: []byte("XX")}, // overlaps with first, skipped
 	}
 	got := applyEdits(src, edits)
 	assert.Equal(t, "HELLO world", string(got))

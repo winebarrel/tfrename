@@ -152,8 +152,8 @@ type cli struct {
 	Variable           variableCmd                  `cmd:"" help:"Rename a variable."`
 	Output             outputCmd                    `cmd:"" help:"Rename an output."`
 	Local              localCmd                     `cmd:"" help:"Rename a local."`
-	Unindex            unindexCmd                   `cmd:"" help:"Strip [KEY] from references — use after deleting count/for_each."`
-	Addindex           addindexCmd                  `cmd:"" help:"Insert [KEY] into bare references — use after adding count/for_each."`
+	Unindex            unindexCmd                   `cmd:"" help:"Strip [KEY] from references; use after deleting count/for_each."`
+	Addindex           addindexCmd                  `cmd:"" help:"Insert [KEY] into bare references; use after adding count/for_each."`
 	InstallCompletions kongplete.InstallCompletions `cmd:"" help:"Install shell completions."`
 	Version            kong.VersionFlag             `help:"Show version."`
 }
