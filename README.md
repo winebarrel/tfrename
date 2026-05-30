@@ -266,3 +266,7 @@ tfrename variable env environment -C ./infra -i
 - Parse errors are reported; nothing is written if any file fails to parse.
 - The command exits non-zero if the target directory contains no `*.tf` files (`no *.tf files found in "<dir>"`) or if nothing in those files matches the target (`no matches found for <target> in "<dir>"`) — silent no-ops are almost always typos.
 - `output` renames only the declaration. Outputs aren't referenced within the same module.
+
+## Related Links
+
+- [vscode-tfrename](https://github.com/winebarrel/vscode-tfrename)
