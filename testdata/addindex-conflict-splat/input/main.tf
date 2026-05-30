@@ -3,7 +3,7 @@ resource "aws_instance" "foo" {
   ami   = "ami-123"
 }
 
-# Splat — parsed as SplatExpr around a bare-looking ScopeTraversalExpr.
+# Splat: parsed as SplatExpr around a bare-looking ScopeTraversalExpr.
 output "all_ids" {
   value = aws_instance.foo[*].id
 }

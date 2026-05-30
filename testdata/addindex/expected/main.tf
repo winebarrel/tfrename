@@ -11,7 +11,7 @@ output "ip" {
   value = aws_instance.foo[0].public_ip
 }
 
-# Index / splat applied to a deeper attribute — the resource ref itself
+# Index / splat applied to a deeper attribute; the resource ref itself
 # is still bare, so addindex must rewrite the inner traversal rather than
 # abort.
 output "tag" {
@@ -32,7 +32,7 @@ output "other_type" {
 }
 
 # Non-matching IndexExpr: a different root with a len-2 collection.
-# The pre-check must not abort on this — it's unrelated to the target.
+# The pre-check must not abort on this; it's unrelated to the target.
 output "config_value" {
   value = var.config[var.key]
 }

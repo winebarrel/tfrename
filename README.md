@@ -4,9 +4,9 @@
 [![codecov](https://codecov.io/gh/winebarrel/tfrename/branch/main/graph/badge.svg)](https://codecov.io/gh/winebarrel/tfrename)
 [![AI Generated](https://img.shields.io/badge/AI%20Generated-Claude-orange?logo=anthropic)](https://claude.ai/claude-code)
 
-`tfrename` renames Terraform symbols — resources, data sources, modules, variables, outputs, and locals — across every `*.tf` file in a directory. Both the declaration and every reference site are rewritten.
+`tfrename` renames Terraform symbols (resources, data sources, modules, variables, outputs, and locals) across every `*.tf` file in a directory. Both the declaration and reference sites are rewritten.
 
-It works at the byte level over an `hclsyntax`-parsed file, so whitespace, comments, and formatting are preserved exactly as-is.
+It works at the byte level over an `hclsyntax`-parsed file, so whitespace, comments, and formatting are preserved.
 
 ## Installation
 
@@ -22,9 +22,8 @@ Append the output to your shell rc file (bash / zsh):
 tfrename install-completions >> ~/.zshrc
 ```
 
-In addition to the subcommand and flag names, the first positional argument
-of each rename subcommand completes from the symbols actually defined in the
-target directory's `*.tf` files:
+The first positional argument of each rename subcommand also completes from
+the symbols defined in the target directory's `*.tf` files:
 
 ```
 $ tfrename variable <TAB>
@@ -65,10 +64,10 @@ Commands:
     Rename a local.
 
   unindex <ref> [flags]
-    Strip [KEY] from references — use after deleting count/for_each.
+    Strip [KEY] from references; use after deleting count/for_each.
 
   addindex <ref> [flags]
-    Insert [KEY] into bare references — use after adding count/for_each.
+    Insert [KEY] into bare references; use after adding count/for_each.
 
   install-completions [flags]
     Install shell completions.
@@ -76,7 +75,7 @@ Commands:
 Run "tfrename <command> --help" for more information on a command.
 ```
 
-By default the result is printed to stdout. Pass `-i` / `--in-place` to rewrite the files on disk. The `resource` and `module` subcommands accept `--moved`, which inserts a `moved` block above the renamed declaration so Terraform recognizes the state move rather than destroying and recreating.
+By default the result is printed to stdout. Pass `-i` / `--in-place` to rewrite the files on disk. The `resource` and `module` subcommands accept `--moved`, which inserts a `moved` block above the renamed declaration so Terraform treats the rename as a state move instead of destroying and recreating the resource.
 
 ## Examples
 
@@ -114,7 +113,7 @@ resource "aws_eip" "addr" {
 tfrename data aws_ami.ubuntu aws_ami.debian -i
 ```
 
-Rewrites `data "aws_ami" "ubuntu"` → `data "aws_ami" "debian"` and every `data.aws_ami.ubuntu.*` reference.
+Rewrites `data "aws_ami" "ubuntu"` to `data "aws_ami" "debian"` and every `data.aws_ami.ubuntu.*` reference.
 
 ### Rename a module / variable / output / local
 
@@ -125,7 +124,7 @@ tfrename output   instance_id id    -i
 tfrename local    region aws_region -i
 ```
 
-For module, variable, and local, references (`module.X.…`, `var.X`, `local.X`) are rewritten as well. `output` renames the block label only; outputs aren't referenced from within the same module.
+For module, variable, and local, references (`module.X.foo`, `var.X`, `local.X`) are rewritten as well. `output` renames the block label only; outputs aren't referenced from within the same module.
 
 ### Also change the resource type
 
@@ -158,9 +157,9 @@ resource "aws_db_instance" "bar" {
 ```
 
 For `module`, a single block at the parent level covers every resource inside
-the module — Terraform automatically rewrites addresses like
-`module.old.aws_instance.x` to `module.new.aws_instance.x`. You don't need a
-per-resource `moved` block.
+the module. Terraform automatically rewrites addresses like
+`module.old.aws_instance.x` to `module.new.aws_instance.x`, so a per-resource
+`moved` block is not needed.
 
 ```sh
 tfrename module vpc network --moved -i
@@ -209,7 +208,7 @@ resource "aws_instance" "foo" {
 output "ip" { value = aws_instance.foo.public_ip }
 ```
 
-String keys (from `for_each`) work the same way — quote the whole argument so
+String keys (from `for_each`) work the same way. Quote the whole argument so
 the shell doesn't eat the brackets:
 
 ```sh
@@ -221,8 +220,8 @@ tfrename unindex 'zoo_thing.baz["hoge"]' -i
 The inverse of `unindex`. When you add `count` or `for_each` to a previously
 single resource, bare `foo.bar` references must gain the index. `addindex`
 takes the target indexed form and inserts it everywhere the bare reference
-appears. The declaration block is left alone — you add the `count` /
-`for_each` line yourself.
+appears. The declaration block is left alone; add the `count` / `for_each`
+line yourself.
 
 ```hcl
 # main.tf
@@ -248,8 +247,8 @@ resource "aws_instance" "foo" {
 output "ip" { value = aws_instance.foo[0].public_ip }
 ```
 
-If any reference already has an index (e.g. a mix of `foo.bar` and
-`foo.bar[0]`), `addindex` aborts without touching any file — fix those
+If any reference already has an index (for example, a mix of `foo.bar` and
+`foo.bar[0]`), `addindex` aborts without touching any file. Fix those
 references first.
 
 ### Target a different directory
@@ -261,10 +260,10 @@ tfrename variable env environment -C ./infra -i
 ## Notes
 
 - Comments and formatting are preserved (byte-level edits via `hclsyntax` ranges).
-- Multi-file projects work — `*.tf` files are scanned together.
+- Multi-file projects work; `*.tf` files are scanned together.
 - References buried in interpolations (`"web-${var.region}"`) are rewritten.
 - Parse errors are reported; nothing is written if any file fails to parse.
-- The command exits non-zero if the target directory contains no `*.tf` files (`no *.tf files found in "<dir>"`) or if nothing in those files matches the target (`no matches found for <target> in "<dir>"`) — silent no-ops are almost always typos.
+- The command exits non-zero if the target directory contains no `*.tf` files (`no *.tf files found in "<dir>"`) or if nothing in those files matches the target (`no matches found for <target> in "<dir>"`). Silent no-ops are almost always typos.
 - `output` renames only the declaration. Outputs aren't referenced within the same module.
 
 ## Related Links

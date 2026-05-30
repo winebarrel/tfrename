@@ -7,5 +7,5 @@ variable "aws_region" {
 
 resource "aws_instance" "web" {
   # this references the region variable
-  region = var.aws_region # ← here
+  region = var.aws_region # <- here
 }

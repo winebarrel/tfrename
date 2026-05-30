@@ -100,8 +100,8 @@ func ParseUnindexTarget(s string) (*Target, error) {
 }
 
 // ParseAddindexTarget parses a single TYPE.NAME[KEY] argument for the addindex
-// command — the indexed form references should be rewritten to. Format and
-// constraints match ParseUnindexTarget.
+// command. The indexed form is what bare references should be rewritten to.
+// Format and constraints match ParseUnindexTarget.
 func ParseAddindexTarget(s string) (*Target, error) {
 	return parseIndexedRef(s, KindAddindex)
 }
@@ -195,7 +195,7 @@ func splitQualified(s string) ([2]string, bool) {
 // under dir. For resource and data, names are in TYPE.NAME form.
 //
 // Parse and I/O errors are silently ignored so this is safe to call from a
-// shell-completion context — partial results are better than no completion.
+// shell-completion context; partial results are better than no completion.
 func ListSymbols(dir string, kind Kind) []string {
 	matches, err := filepath.Glob(filepath.Join(dir, "*.tf"))
 	if err != nil {
@@ -269,7 +269,7 @@ type Renamer struct {
 	Verbose bool
 	// Moved, when true, inserts a `moved { from = ...; to = ... }` block
 	// directly above the renamed declaration. Only valid for KindResource
-	// and KindModule — other kinds don't have Terraform state addresses.
+	// and KindModule; other kinds don't have Terraform state addresses.
 	Moved bool
 
 	files []*fileState
@@ -298,7 +298,7 @@ func NewRenamer(dir string, target *Target) *Renamer {
 // Rename applies the rename to every *.tf file in Dir.
 // When inPlace is true, files are rewritten on disk; otherwise the changed
 // output is written to r.Out. Returns an error if Dir contains no *.tf
-// files, or if no match is found across them — silent no-ops usually mean
+// files, or if no match is found across them. Silent no-ops usually mean
 // a typo (wrong directory, wrong name, wrong key).
 func (r *Renamer) Rename(inPlace bool) error {
 	if err := r.load(); err != nil {
@@ -333,13 +333,13 @@ func (r *Renamer) Rename(inPlace bool) error {
 }
 
 // checkNoExistingIndex aborts addindex if the target TYPE.NAME reference
-// itself already has an index — the user must explicitly resolve those
+// itself already has an index. The user must explicitly resolve those
 // before adding an index.
 //
 // Three HCL shapes are caught here:
-//  1. literal index inside a ScopeTraversalExpr — `foo.bar[0]`
-//  2. dynamic IndexExpr around the bare reference — `foo.bar[var.i]`
-//  3. SplatExpr around the bare reference — `foo.bar[*]`
+//  1. literal index inside a ScopeTraversalExpr, e.g. `foo.bar[0]`
+//  2. dynamic IndexExpr around the bare reference, e.g. `foo.bar[var.i]`
+//  3. SplatExpr around the bare reference, e.g. `foo.bar[*]`
 //
 // Without (2) and (3), the inner `foo.bar` traversal looks bare to the
 // matcher and would get a stray `[0]` inserted, producing nonsense like
@@ -357,8 +357,8 @@ func (r *Renamer) checkNoExistingIndex(fs *fileState) error {
 				fs.path, rng.Start.Line, rng.Start.Column, r.Target.OldType, r.Target.OldName, label)
 		}
 	}
-	// isBareTargetRef reports whether tr is exactly `[Root(type), Attr(name)]`
-	// — i.e. the bare resource reference, with nothing trailing.
+	// isBareTargetRef reports whether tr is exactly `[Root(type), Attr(name)]`,
+	// i.e. the bare resource reference with nothing trailing.
 	isBareTargetRef := func(tr hcl.Traversal) bool {
 		if len(tr) != 2 {
 			return false
@@ -528,7 +528,7 @@ func (r *Renamer) collectDeclEdits(fs *fileState) []edit {
 // the declaration. resource and module blocks are normally top-level
 // (column 1), but if the block happens to be indented we still want any
 // leading whitespace on its line to stay with the declaration rather than
-// being consumed by the inserted block — so we walk back to the start of
+// being consumed by the inserted block, so we walk back to the start of
 // the line first.
 func (r *Renamer) movedInsertEdit(fs *fileState, blk *hclsyntax.Block, fromAddr, toAddr string) edit {
 	start := blk.TypeRange.Start.Byte
