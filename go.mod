@@ -3,10 +3,9 @@ module github.com/winebarrel/tfrename
 go 1.26.1
 
 require (
-	github.com/alecthomas/kong v1.15.0
+	github.com/alecthomas/kong v1.16.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/posener/complete v1.2.3
-	github.com/posener/complete/v2 v2.1.0
 	github.com/stretchr/testify v1.11.1
 	github.com/willabides/kongplete v0.4.0
 	github.com/zclconf/go-cty v1.19.0
