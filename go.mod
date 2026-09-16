@@ -5,7 +5,7 @@ go 1.26.1
 require (
 	github.com/alecthomas/kong v1.16.1
 	github.com/hashicorp/hcl/v2 v2.25.0
-	github.com/posener/complete v1.2.3
+	github.com/posener/complete/v2 v2.1.0
 	github.com/posener/complete/v2 v2.1.0
 	github.com/stretchr/testify v1.12.1
 	github.com/willabides/kongplete v0.4.0
